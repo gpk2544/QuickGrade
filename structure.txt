@@ -1,0 +1,422 @@
+================================================================================
+                         QUICKGRADE FILE STRUCTURE
+================================================================================
+                         Date: April 7, 2026
+================================================================================
+
+PROJECT ROOT: QuickGrade/
+================================================================================
+
+QUICKGRADE/
+│
+├── [README.md]                        - Project documentation
+│
+├── [Latest_Changes.md]                 - Change log and updates
+│
+├── [CHANGES_ELABORATE.txt]            - Detailed changes documentation
+│
+├── [structure.txt]                     - This file structure document
+│
+├── [.gitignore]                       - Git ignore rules
+│
+├── backend/                           - FastAPI Backend Application
+│   │
+│   ├── main.py                        - FastAPI application entry point
+│   │                                   - Initializes Firebase
+│   │                                   - Sets up CORS middleware
+│   │                                   - Registers all route routers
+│   │                                   - Provides / and /health endpoints
+│   │
+│   ├── requirements.txt               - Python dependencies (all packages)
+│   │
+│   ├── .env                           - Environment variables (API keys)
+│   │
+│   ├── .env.example                   - Environment variables template
+│   │
+│   ├── serviceAccountKey.json         - Firebase service account credentials
+│   │
+│   ├── config/                        - Configuration module
+│   │   ├── __init__.py                - Exports: APP, KB, OCR, RAG, GRADING, DB
+│   │   │
+│   │   └── settings.py                - All configuration constants
+│   │                                   - _KBSettings: ChromaDB, embeddings
+│   │                                   - _OCRSettings: OCR configuration
+│   │                                   - _RAGSettings: Retrieval settings
+│   │                                   - _GradingSettings: LLM settings
+│   │                                   - _DBSettings: SQLite settings
+│   │                                   - _AppSettings: App configuration
+│   │
+│   ├── routes/                       - FastAPI route handlers
+│   │   ├── auth.py                   - Authentication routes
+│   │   │                               - POST /auth/verify
+│   │   │                               - GET /auth/me
+│   │   │                               - PUT /auth/profile
+│   │   │                               - POST /auth/avatar
+│   │   │
+│   │   ├── forums.py                 - Forum management routes
+│   │   │                               - GET /forums/
+│   │   │                               - POST /forums/
+│   │   │                               - GET /forums/{id}
+│   │   │                               - DELETE /forums/{id}
+│   │   │                               - PUT /forums/{id}/close
+│   │   │                               - POST /forums/{id}/answers
+│   │   │                               - GET /forums/{id}/students
+│   │   │                               - GET /forums/{id}/export/excel
+│   │   │
+│   │   ├── evaluate.py               - Grading evaluation routes
+│   │   │                               - POST /evaluate/student
+│   │   │                               - POST /evaluate/all
+│   │   │                               - Uses grading.grader for LLM grading
+│   │   │                               - Uses grading.knowledge_base for RAG
+│   │   │
+│   │   ├── upload.py                 - File upload routes
+│   │   │                               - POST /upload/answer-sheet
+│   │   │                               - POST /upload/question-paper
+│   │   │                               - POST /upload/textbook
+│   │   │                               - Uses grading.knowledge_base.build()
+│   │   │
+│   │   └── export.py                 - Export routes
+│   │                                   - Excel download functionality
+│   │
+│   ├── services/                     - External service integrations
+│   │   ├── ocr_service.py            - Tesseract OCR wrapper
+│   │   │                               - extract_text_from_bytes()
+│   │   │                               - Uses pytesseract and pdf2image
+│   │   │
+│   │   ├── pdf_parser.py             - PDF text extraction
+│   │   │                               - pdf_bytes_to_text()
+│   │   │                               - Uses PyMuPDF (fitz)
+│   │   │
+│   │   ├── storage.py                - Firebase Storage helper
+│   │   │                               - upload_to_firebase()
+│   │   │
+│   │   ├── ai_grader.py              - Legacy LLM grader (DEPRECATED)
+│   │   │                               - Replaced by grading.grader
+│   │   │
+│   │   └── rag_service.py            - Legacy RAG service (DEPRECATED)
+│   │                                   - Replaced by grading.knowledge_base
+│   │
+│   ├── grading/                      - Advanced LLM Grading Module
+│   │   │                               (From AutomaticGrader)
+│   │   ├── __init__.py               - Exports: grade, grade_batch, clear_cache
+│   │   │
+│   │   ├── grader.py                 - Main grading facade
+│   │   │                               - grade(question, student_answer, 
+│   │   │                               -   reference_context, max_marks)
+│   │   │                               - grade_batch(pairs, contexts)
+│   │   │                               - clear_cache()
+│   │   │                               - Quality checks, caching, LLM calls
+│   │   │
+│   │   ├── llm_client.py             - Groq API client
+│   │   │                               - call(user_prompt, system_prompt)
+│   │   │                               - Model waterfall (Llama3, Mixtral)
+│   │   │                               - Rate limit handling
+│   │   │
+│   │   ├── prompt_builder.py        - Prompt construction
+│   │   │                               - build_prompt()
+│   │   │                               - SYSTEM_MESSAGE
+│   │   │
+│   │   ├── response_parser.py        - JSON parsing & validation
+│   │   │                               - parse(raw_response, max_marks)
+│   │   │                               - JSON repair, field validation
+│   │   │
+│   │   └── quality_checker.py        - Answer quality validation
+│   │                                   - check(student_answer) -> (label, reason)
+│   │
+│   ├── knowledge/                    - RAG Knowledge Base Module
+│   │   │                               (From AutomaticGrader)
+│   │   ├── __init__.py               - Exports: build, retrieve, stats
+│   │   │
+│   │   ├── pdf_loader.py             - PDF text extraction
+│   │   │                               - load_pdf_text(pdf_path)
+│   │   │                               - Uses PyMuPDF (fitz)
+│   │   │
+│   │   ├── chunker.py                - Text chunking
+│   │   │                               - chunk_text(raw_text)
+│   │   │                               - Paragraph-aware overlapping chunks
+│   │   │
+│   │   ├── embedder.py               - Sentence embeddings
+│   │   │                               - get_embeddings(chunks)
+│   │   │                               - deduplicate_chunks()
+│   │   │                               - Uses sentence-transformers
+│   │   │
+│   │   ├── vector_store.py           - ChromaDB operations
+│   │   │                               - upsert_chunks()
+│   │   │                               - query_chunks()
+│   │   │                               - is_already_indexed()
+│   │   │                               - get_stats()
+│   │   │
+│   │   └── knowledge_base.py         - Knowledge base facade
+│   │                                   - build(pdf_path, force_rebuild)
+│   │                                   - retrieve(query, top_k, use_mmr)
+│   │                                   - stats()
+│   │
+│   ├── ocr/                          - Advanced OCR Module (Optional)
+│   │   │                               (From AutomaticGrader)
+│   │   ├── __init__.py               - Public API for OCR
+│   │   │
+│   │   ├── engines.py                - OCR engine implementations
+│   │   │                               - EasyOCREngine
+│   │   │                               - TrOCREngine
+│   │   │                               - PaddleOCREngine
+│   │   │                               - OCRResult dataclass
+│   │   │
+│   │   ├── image_processor.py       - Image preprocessing
+│   │   │                               - Shadow removal
+│   │   │                               - CLAHE enhancement
+│   │   │                               - Deskew correction
+│   │   │                               - Denoising, thresholding
+│   │   │
+│   │   ├── combiner.py               - Multi-engine result merging
+│   │   │                               - confidence_weighted()
+│   │   │                               - smart_merge()
+│   │   │                               - vote()
+│   │   │
+│   │   └── pipeline.py              - OCR pipeline facade
+│   │                                   - process_question_image()
+│   │                                   - process_answer_pdf()
+│   │
+│   ├── rag/                         - RAG Retrieval Module
+│   │   │                               (From AutomaticGrader)
+│   │   ├── __init__.py               - Exports: retrieve_context, retrieve_multi
+│   │   │
+│   │   └── retriever.py             - Semantic retrieval
+│   │                                   - retrieve_context(query, top_k)
+│   │                                   - retrieve_multi(queries)
+│   │                                   - Query expansion, dedup
+│   │
+│   ├── storage/                      - SQLite Storage Module
+│   │   │                               (From AutomaticGrader)
+│   │   ├── __init__.py               - Public API
+│   │   │
+│   │   ├── database.py              - DB facade
+│   │   │                               - Auto-initializes schema
+│   │   │
+│   │   ├── writer.py                - Insert operations
+│   │   │                               - save_result()
+│   │   │                               - save_session()
+│   │   │
+│   │   ├── reader.py                - Query operations
+│   │   │                               - get_results()
+│   │   │                               - get_sessions()
+│   │   │
+│   │   ├── connection.py            - WAL-mode context manager
+│   │   │                               - lock-retry decorator
+│   │   │
+│   │   └── schema.py               - Table creation & migration
+│   │
+│   └── utils/                       - Utility Functions
+│       ├── __init__.py              - Public API
+│       │
+│       ├── logger.py               - Logging configuration
+│       │                               - get_logger(name)
+│       │                               - Single handler, configured once
+│       │
+│       ├── retry.py                - Retry decorator
+│       │                               - @retry(max_attempts, backoff)
+│       │
+│       └── text.py                - Text utilities
+│                                       - extract_marks_from_text()
+│                                       - trim_to_budget()
+│                                       - jaccard_similarity()
+│                                       - fuzzy_dedup()
+│                                       - clean_whitespace()
+│
+├── frontend/                        - Frontend Application
+│   │
+│   ├── index.html                   - Main HTML file
+│   │                                   - Landing page
+│   │                                   - Login/Register
+│   │                                   - Dashboard
+│   │                                   - Forum management
+│   │                                   - Student grading
+│   │
+│   ├── css/
+│   │   └── main.css                 - All CSS styles
+│   │                                   - Responsive design
+│   │                                   - Animations
+│   │
+│   ├── js/
+│   │   ├── app.js                   - Main application logic
+│   │   │                               - Page navigation
+│   │   │                               - Auth handling
+│   │   │                               - Forum management
+│   │   │                               - Student upload
+│   │   │                               - Grading UI
+│   │   │
+│   │   ├── api.js                   - API client
+│   │   │                               - request() fetch wrapper
+│   │   │                               - setAuthToken()
+│   │   │                               - All API functions
+│   │   │
+│   │   ├── backend.js              - Backend helpers
+│   │   │
+│   │   └── animation.js            - Landing page animation
+│   │                                   - Canvas particle animation
+│   │
+│   └── firebase/
+│       └── firebase-config.js      - Firebase configuration
+│                                       - Firebase initialization
+│                                       - Auth, Firestore, Storage config
+│
+├── database/
+│   └── schema.sql                   - Firestore database schema
+│                                       - Forums collection
+│                                       - Students collection
+│                                       - Model answers collection
+│
+└── docs/                            - Documentation folder
+                                        - (Additional docs if any)
+
+
+================================================================================
+                              DETAILED MODULE DESCRIPTIONS
+================================================================================
+
+1. BACKEND STRUCTURE
+====================
+
+main.py:
+- FastAPI app initialization
+- Firebase credentials loading
+- CORS middleware configuration
+- Route registration
+- Exception handling
+
+routes/:
+- auth.py: Firebase token verification, user profile management
+- forums.py: CRUD operations for forums, model answers
+- evaluate.py: Student grading using LLM + RAG
+- upload.py: File upload with OCR and RAG indexing
+- export.py: Excel export functionality
+
+services/:
+- ocr_service.py: Tesseract OCR wrapper for text extraction
+- pdf_parser.py: PyMuPDF-based PDF text extraction
+- storage.py: Firebase Storage upload helper
+- ai_grader.py: DEPRECATED - replaced by grading module
+- rag_service.py: DEPRECATED - replaced by knowledge module
+
+grading/ (Advanced LLM Grading):
+- grader.py: Main facade orchestrating quality check → prompt → LLM → parse
+- llm_client.py: Groq API client with model fallback
+- prompt_builder.py: Structured prompt construction
+- response_parser.py: JSON response parsing with repair
+- quality_checker.py: Blank/short/garbled answer detection
+
+knowledge/ (RAG Knowledge Base):
+- pdf_loader.py: FitZ-based PDF text extraction
+- chunker.py: Paragraph-aware overlapping chunking
+- embedder.py: Sentence-transformers with cache
+- vector_store.py: ChromaDB CRUD operations
+- knowledge_base.py: Unified facade for KB operations
+
+ocr/ (Advanced OCR - Optional):
+- engines.py: EasyOCR, TrOCR, PaddleOCR implementations
+- image_processor.py: Preprocessing (deskew, CLAHE, etc.)
+- combiner.py: Multi-engine result merging
+- pipeline.py: End-to-end OCR pipeline
+
+rag/ (RAG Retrieval):
+- retriever.py: Query expansion and semantic retrieval
+
+storage/ (SQLite - Optional):
+- database.py: Schema initialization and facade
+- writer.py: Result storage operations
+- reader.py: Result retrieval queries
+- connection.py: WAL mode with retry logic
+
+utils/:
+- logger.py: Centralized logging
+- retry.py: Retry decorator for API calls
+- text.py: Text processing utilities
+
+config/:
+- settings.py: All configuration constants in dataclasses
+
+
+2. FRONTEND STRUCTURE
+=====================
+
+index.html:
+- Landing page with animated canvas
+- Login/Register forms
+- Dashboard with forum list
+- Forum detail with student management
+- Grading interface
+- Results display
+
+js/api.js:
+- Centralized API client
+- Auth token management
+- All backend API calls
+- Error handling
+
+js/app.js:
+- Single page application logic
+- Page navigation
+- Form handling
+- Event listeners
+
+
+================================================================================
+                              FILE TYPE LEGEND
+================================================================================
+
+.py       - Python source code
+.js       - JavaScript source code
+.html     - HTML markup
+.css      - CSS stylesheets
+.json     - JSON configuration
+.sql      - Database schema
+.env      - Environment variables
+.txt      - Text documentation
+.md       - Markdown documentation
+
+
+================================================================================
+                              DEPENDENCY MAPPING
+================================================================================
+
+requirements.txt → Used by:
+- main.py
+- routes/*.py
+- services/*.py
+- grading/*.py
+- knowledge/*.py
+- ocr/*.py
+- rag/*.py
+- storage/*.py
+- config/*.py
+- utils/*.py
+
+firebase-admin → Used by:
+- main.py
+- routes/auth.py
+- routes/forums.py
+- routes/evaluate.py
+- routes/upload.py
+
+chromadb → Used by:
+- knowledge/vector_store.py
+
+sentence-transformers → Used by:
+- knowledge/embedder.py
+- grading/prompt_builder.py
+
+groq → Used by:
+- grading/llm_client.py
+
+pytesseract → Used by:
+- services/ocr_service.py
+
+PyMuPDF → Used by:
+- services/pdf_parser.py
+- knowledge/pdf_loader.py
+
+opencv-python → Used by:
+- ocr/image_processor.py
+
+================================================================================
+                              END OF STRUCTURE
+================================================================================
