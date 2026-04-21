@@ -542,6 +542,13 @@ window.addStudentRow = function () {
         <textarea class="stu-text-input" rows="4" placeholder="Paste student's answer text here..." style="width:100%;padding:.75rem;border:1.5px solid var(--border);border-radius:10px;background:var(--bg);color:var(--text);font-size:.85rem;line-height:1.5;resize:vertical"></textarea>
         <p style="font-size:.72rem;color:var(--text-muted);margin-top:.4rem">Paste the answer text directly. AI will grade this without OCR.</p>
       </div>
+
+      <!-- Loading / Processing state -->
+      <div class="stu-upload-prog" style="display:none;background:var(--surface);border:1.5px solid var(--accent);border-radius:12px;padding:1.5rem;text-align:center;margin-top:.75rem">
+        <div style="font-size:2rem;margin-bottom:.5rem;animation:spin 1.5s linear infinite;display:inline-block">🤖</div>
+        <div style="font-family:'Barlow',sans-serif;font-weight:700;font-size:1rem;color:var(--accent)">Extracting Text using Vision API...</div>
+        <div style="font-size:.8rem;color:var(--text-muted);margin-top:.25rem">Please wait, taking up to 15 seconds</div>
+      </div>
       
       <div class="stu-ocr-preview" style="display:none;margin-top:.75rem"></div>
     </div>
@@ -566,9 +573,18 @@ window.addStudentRow = function () {
 
     try {
       uploadBtn.disabled = true; uploadBtn.textContent = '⏳ Processing…';
+      
+      // Hide input zones and show loading indicator
+      div.querySelector('.stu-file-zone').style.display = 'none';
+      if (div.querySelector('.stu-text-zone')) div.querySelector('.stu-text-zone').style.display = 'none';
+      div.querySelector('.stu-upload-prog').style.display = 'block';
+
       const result = await apiUploadAnswerSheet(currentForumId, name, reg, useText ? null : fileInput.files[0], useText ? textInput?.value : null);
       const student = result.student;
       const ocrPreview = result.ocr_preview;
+
+      // Hide loading indicator
+      div.querySelector('.stu-upload-prog').style.display = 'none';
 
       // Show OCR preview
       const previewDiv = div.querySelector('.stu-ocr-preview');
@@ -599,6 +615,14 @@ uploadBtn.textContent = '✅ Uploaded';
 
       window.showToast(`✅ ${name}'s sheet uploaded`);
     } catch (err) {
+      // Hide loading indicator, restore input zones
+      div.querySelector('.stu-upload-prog').style.display = 'none';
+      if (useText) {
+        if (div.querySelector('.stu-text-zone')) div.querySelector('.stu-text-zone').style.display = 'block';
+      } else {
+        div.querySelector('.stu-file-zone').style.display = 'block';
+      }
+
       uploadBtn.disabled = false; uploadBtn.textContent = useText ? '💾 Save Text' : '📤 Upload & OCR';
       window.showToast('⚠ Upload failed: ' + err.message);
     }
