@@ -11,6 +11,15 @@
 </head>
 <body>
 <!-- ═══════════════════════════════════════════
+     INITIAL LOADER (Prevents UI flash)
+════════════════════════════════════════════ -->
+<div id="initial-loader" style="position:fixed;top:0;left:0;width:100vw;height:100vh;background:#06080d;z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column">
+  <div style="font-size:3rem;margin-bottom:1rem;animation:spin 1.5s linear infinite">🤖</div>
+  <div style="font-family:'Barlow',sans-serif;font-weight:700;font-size:1.2rem;color:var(--text)">Quick<span style="color:var(--accent)">Grade</span></div>
+  <div style="font-size:.85rem;color:var(--text-muted);margin-top:.4rem">Verifying session…</div>
+</div>
+
+<!-- ═══════════════════════════════════════════
      LANDING PAGE
 ════════════════════════════════════════════ -->
 <div id="landing" class="page active">
@@ -1192,8 +1201,8 @@ Q2: Photosynthesis converts light energy to chemical energy using chlorophyll...
   <span class="toast-icon">✦</span>
   <span id="toast-msg">Action completed</span>
 </div>
-<script src="js/animation.js?v=3"></script>
-<script src="js/app.js?v=3"></script>
-<script type="module" src="js/backend.js?v=3"></script>
+<script src="js/animation.js?v=4"></script>
+<script src="js/app.js?v=4"></script>
+<script type="module" src="js/backend.js?v=4"></script>
 </body>
 </html>

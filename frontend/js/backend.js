@@ -180,6 +180,8 @@ window.handleGoogleLogin = async function () {
 };
 
 // ── Auto-login on page load ──
+let initialAuthCheckDone = false;
+
 onAuthStateChanged(auth, async (user) => {
   if (user) {
     try {
@@ -212,6 +214,13 @@ onAuthStateChanged(auth, async (user) => {
     } catch (e) {
       console.warn('Auto-login failed:', e);
     }
+  }
+
+  // Dismiss global loader once auth check is complete
+  if (!initialAuthCheckDone) {
+    initialAuthCheckDone = true;
+    const loader = document.getElementById('initial-loader');
+    if (loader) loader.style.display = 'none';
   }
 });
 
