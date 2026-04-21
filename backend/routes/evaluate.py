@@ -86,8 +86,11 @@ async def evaluate_student(req: EvalReq, p=Depends(verify_token)):
 
     # Get model answers
     answers = []
-    for a in db().collection("model_answers").where("forum_id", "==", req.forum_id).order_by("question_num").stream():
+    for a in db().collection("model_answers").where("forum_id", "==", req.forum_id).stream():
         answers.append(a.to_dict())
+    
+    # Sort answers by question_num in Python
+    answers.sort(key=lambda x: int(x.get("question_num", 0)))
 
     if not answers:
         raise HTTPException(400, "No model answers found for this forum")

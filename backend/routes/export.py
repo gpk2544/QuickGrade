@@ -29,8 +29,10 @@ def export_excel(forum_id: str, p=Depends(verify_token)):
 
     # Get model answers (for column headers)
     answers = []
-    for a in db().collection("model_answers").where("forum_id", "==", forum_id).order_by("question_num").stream():
+    for a in db().collection("model_answers").where("forum_id", "==", forum_id).stream():
         answers.append(a.to_dict())
+    # Sort answers by question_num in Python
+    answers.sort(key=lambda x: int(x.get("question_num", 0)))
 
     # Get students
     students = []
