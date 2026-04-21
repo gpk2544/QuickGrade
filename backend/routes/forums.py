@@ -107,12 +107,12 @@ def get_forum(forum_id: str, p=Depends(verify_token)):
     forum = doc.to_dict()
     forum["id"] = doc.id
 
-    # Get model answers
-    answers = []
-    for a in db().collection("model_answers").where("forum_id", "==", forum_id).order_by("question_num").stream():
+    for a in db().collection("model_answers").where("forum_id", "==", forum_id).stream():
         ad = a.to_dict()
         ad["id"] = a.id
         answers.append(ad)
+    # Sort answers by question_num in Python to avoid Firestore composite index requirement
+    answers.sort(key=lambda x: int(x.get("question_num", 0)))
     forum["answers"] = answers
 
     # Get students
