@@ -107,6 +107,7 @@ def get_forum(forum_id: str, p=Depends(verify_token)):
     forum = doc.to_dict()
     forum["id"] = doc.id
 
+    answers = []
     for a in db().collection("model_answers").where("forum_id", "==", forum_id).stream():
         ad = a.to_dict()
         ad["id"] = a.id
