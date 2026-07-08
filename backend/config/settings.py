@@ -1,22 +1,7 @@
-"""
-config/settings.py
-==================
-Single source of truth for every configurable constant across the project.
-Import from here instead of scattering magic numbers across modules.
-
-Usage:
-    from config.settings import OCR, DB, KB, GRADING
-"""
-
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List
 import os
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# KNOWLEDGE BASE
-# ══════════════════════════════════════════════════════════════════════════════
 @dataclass(frozen=True)
 class _KBSettings:
     chroma_db_path:   str   = field(default_factory=lambda: os.getenv("CHROMA_DIR", "./chroma_db"))
@@ -28,13 +13,7 @@ class _KBSettings:
     batch_size:       int   = 256
     near_dup_thresh:  float = 0.97
     mmr_lambda:       float = 0.70
-
 KB = _KBSettings()
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# OCR
-# ══════════════════════════════════════════════════════════════════════════════
 @dataclass(frozen=True)
 class _OCRSettings:
     pdf_render_dpi:        int   = 250
@@ -45,13 +24,7 @@ class _OCRSettings:
     retry_backoff:         float = 1.5
     trocr_model:           str   = "microsoft/trocr-base-handwritten"
     easyocr_cache_dir:     str   = "~/.cache/easyocr"
-
 OCR = _OCRSettings()
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# RAG
-# ══════════════════════════════════════════════════════════════════════════════
 @dataclass(frozen=True)
 class _RAGSettings:
     max_context_chars:  int = 3000
@@ -62,18 +35,12 @@ class _RAGSettings:
         "explain", "describe", "discuss", "write", "about", "state", "list",
         "give", "define", "mention", "note", "briefly", "short", "answer",
     }))
-
 RAG = _RAGSettings()
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# GRADING / LLM
-# ══════════════════════════════════════════════════════════════════════════════
 @dataclass(frozen=True)
 class _GradingSettings:
     models: tuple = field(default_factory=lambda: (os.getenv("GROQ_MODEL", "llama3-8b-8192"),))
-    max_tokens:          int   = 1500
-    temperature:         float = 0.15
+    max_tokens:          int   = 4000
+    temperature:         float = 0.3
     max_context_chars:   int   = 3000
     max_answer_chars:    int   = 2000
     max_api_retries:     int   = 4
@@ -81,31 +48,18 @@ class _GradingSettings:
     noise_ratio_thresh:  float = 0.40
     repetition_thresh:   float = 0.30
     min_answer_words:    int   = 4
-
 GRADING = _GradingSettings()
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# DATABASE
-# ══════════════════════════════════════════════════════════════════════════════
 @dataclass(frozen=True)
 class _DBSettings:
     path:          str   = "./grading_results.db"
     schema_ver:    int   = 2
     lock_retries:  int   = 5
     lock_sleep:    float = 0.30
-
 DB = _DBSettings()
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# APP / UI
-# ══════════════════════════════════════════════════════════════════════════════
 @dataclass(frozen=True)
 class _AppSettings:
     page_title:      str = "QuickGrade AI"
     page_icon:       str = "🎓"
     default_top_k:   int = 5
     pass_threshold:  float = 35.0
-
 APP = _AppSettings()

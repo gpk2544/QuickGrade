@@ -12,19 +12,21 @@ import { getStorage, ref, uploadBytes, getDownloadURL }
   from "https://www.gstatic.com/firebasejs/11.0.0/firebase-storage.js";
 
 // ── YOUR FIREBASE CONFIG ─────────────────────────────────────
+// ⚠️ IMPORTANT: These must match the backend's serviceAccountKey.json project
 const firebaseConfig = {
-  apiKey:            "AIzaSyDYmp0tuimk6J-5tKZUgfUUq_9NAL3xRB4",
-  authDomain:        "quickgarde-bcc77.firebaseapp.com",
-  projectId:         "quickgarde-bcc77",
-  storageBucket:     "quickgarde-bcc77.firebasestorage.app",
-  messagingSenderId: "636175142896",
-  appId:             "1:636175142896:web:56384d77839f8f0c5b5735"
+  apiKey: "AIzaSyAocpQRNjuOpSDm732pw-FIgPNuR7tcvow",
+  authDomain: "quickgrade-78af7.firebaseapp.com",
+  projectId: "quickgrade-78af7",
+  storageBucket: "quickgrade-78af7.firebasestorage.app",
+  messagingSenderId: "826961594571",
+  appId: "1:826961594571:web:d49566ddebbe6825a2334e",
+  measurementId: "G-D0TCTPWYMG"
 };
 // ─────────────────────────────────────────────────────────────
 
-const app     = initializeApp(firebaseConfig);
-const auth    = getAuth(app);
-const db      = getFirestore(app);
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
 const storage = getStorage(app);
 const googleProvider = new GoogleAuthProvider();
 

@@ -1,13 +1,9 @@
-/* QuickGrade — Animation */
-
-// ── Mouse-reactive dash particles (Antigravity style) ──
   window.addEventListener('load', function initCanvas() {
     const canvas = document.getElementById('hero-canvas');
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     let W, H;
     let mx = -9999, my = -9999;
-
     const COLORS = [
       '#00e5b8','#00e5b8','#00e5b8',
       '#4f8ef7','#4f8ef7',
@@ -15,11 +11,9 @@
       '#ffffff','#ffffff',
       '#00bfff',
     ];
-
     const COUNT = 200;
     let dashes = [];
     function rnd(a,b){ return a + Math.random()*(b-a); }
-
     class Dash {
       constructor(){ this.spawn(); }
       spawn(){
@@ -67,9 +61,7 @@
         ctx.restore();
       }
     }
-
     function resize(){
-      // Use offsetWidth first, fallback to window dimensions (fixes VS Code Live Server)
       W = canvas.width  = window.innerWidth;
       H = canvas.height = window.innerHeight;
     }
@@ -82,18 +74,14 @@
       dashes.forEach(d=>{ d.update(); d.draw(); });
       requestAnimationFrame(loop);
     }
-
     resize(); init(); loop();
     window.addEventListener('resize', ()=>{ resize(); init(); });
-
-    // Listen on both document and landing element for max compatibility
     function onMove(e){
       const r = canvas.getBoundingClientRect();
       mx = e.clientX - r.left;
       my = e.clientY - r.top;
     }
     function onLeave(){ mx = -9999; my = -9999; }
-
     window.addEventListener('mousemove', function(e){
       if(document.getElementById('landing')?.classList.contains('active')){
         mx = e.clientX; my = e.clientY;

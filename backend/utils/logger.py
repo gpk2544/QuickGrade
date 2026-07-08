@@ -1,18 +1,7 @@
-"""
-utils/logger.py
-===============
-Centralised logging factory.
-All modules call get_logger(__name__) instead of configuring their own handlers.
-"""
-
 import logging
 import sys
-
 _CONFIGURED = False
-
-
 def setup_logging(level: int = logging.INFO) -> None:
-    """Configure root logger once. Safe to call multiple times."""
     global _CONFIGURED
     if _CONFIGURED:
         return
@@ -26,9 +15,6 @@ def setup_logging(level: int = logging.INFO) -> None:
     if not root.handlers:
         root.addHandler(handler)
     _CONFIGURED = True
-
-
 def get_logger(name: str) -> logging.Logger:
-    """Return a named logger, ensuring root logging is configured."""
     setup_logging()
     return logging.getLogger(name)

@@ -1,746 +1,559 @@
 /**
- * QuickGrade — Backend Integration Module
- * Overrides app.js functions to use real Firebase Auth + Backend API.
- * Loaded as type="module" after app.js so window functions already exist.
+ * QuickGrade — Backend Integration & Data Management
+ * Handles Firebase Auth, API calls, and dynamic table rendering.
  */
 
 import {
   auth, db, storage, googleProvider,
   signInWithEmailAndPassword, createUserWithEmailAndPassword,
   signOut, onAuthStateChanged,
-  GoogleAuthProvider, signInWithPopup,
-  collection, doc, setDoc, getDoc, getDocs, addDoc,
-  query, where, orderBy, deleteDoc,
-  ref, uploadBytes, getDownloadURL
+  signInWithPopup, GoogleAuthProvider,
+  doc, getDoc, setDoc
 } from '../firebase/firebase-config.js';
 
 import {
   setAuthToken, getAuthToken,
-  apiVerifyToken, apiGetProfile, apiUpdateProfile, apiUploadAvatar,
-  apiListForums, apiCreateForum, apiGetForum, apiDeleteForum, apiCloseForum,
-  apiUploadAnswerSheet, apiUploadQuestionPaper, apiUploadTextbook,
-  apiEvaluateStudent, apiEvaluateAll, apiExportExcel, downloadBlob
+  apiVerifyToken, apiGetProfile, apiUpdateProfile,
+  apiListForums, apiGetForum, apiCreateForum, apiDeleteForum, apiCloseForum,
+  apiEvaluateAll, apiEvaluateStudent, apiUpdateStudent, apiDeleteStudent,
+  apiUploadQuestionPaper, apiUploadTextbook, apiUploadAnswerSheet, apiUploadAvatar,
+  apiExportExcel, downloadBlob
 } from './api.js';
 
+// Global state for ease of access from other scripts (app.js)
 window.getAuthToken = getAuthToken;
 
-// ═══════════════════════════════════════════
-//  STATE
-// ═══════════════════════════════════════════
-let currentForumId = null;   // currently open forum
-let currentForumData = null; // cached forum detail
-let forumsCache = [];        // list of forums from API
+// ── AUTHENTICATION ───────────────────────────────────────────
 
-// ═══════════════════════════════════════════
-//  AUTH — Override handleLogin / handleRegister
-// ═══════════════════════════════════════════
-
-window.handleLogin = async function () {
-  const email = document.getElementById('login-email').value.trim();
-  const pass = document.getElementById('login-pass').value;
-  const errEl = document.getElementById('login-error');
-
-  if (!email || !email.includes('@')) { errEl.textContent = 'Please enter a valid email address.'; errEl.style.display = 'block'; return; }
-  if (!pass) { errEl.textContent = 'Please enter your password.'; errEl.style.display = 'block'; return; }
-  errEl.style.display = 'none';
-
-  try {
-    const cred = await signInWithEmailAndPassword(auth, email, pass);
-    const idToken = await cred.user.getIdToken();
-    setAuthToken(idToken);
-
-    // Try backend verify — but don't fail login if backend is misconfigured
-    let backendUser = null;
-    try {
-      const result = await apiVerifyToken(idToken);
-      backendUser = result.user;
-    } catch (backendErr) {
-      console.warn('Backend verify failed (check serviceAccountKey.json project ID), continuing with Firebase identity:', backendErr.message);
-    }
-
-    const fbUser = cred.user;
-    const displayName = fbUser.displayName || '';
-    const nameParts = displayName.split(' ');
-    window.currentUser = {
-      uid: fbUser.uid,
-      firstName: backendUser?.first_name || nameParts[0] || email.split('@')[0],
-      lastName: backendUser?.last_name || nameParts.slice(1).join(' ') || '',
-      school: backendUser?.school || '',
-      email: fbUser.email || email,
-      avatarUrl: backendUser?.avatar_url || fbUser.photoURL || '',
-      isNew: false
-    };
-
-    window.userForums = window.userForums || [];
-    window.updateUserUI(window.currentUser);
-    if (backendUser) await loadDashboardData();
-    window.showDashboard();
-    window.showToast('✅ Logged in successfully!');
-  } catch (err) {
-    console.error('Login error:', err);
-    let msg = 'Login failed. Please check your credentials.';
-    if (err.code === 'auth/user-not-found') msg = 'No account found with this email.';
-    if (err.code === 'auth/wrong-password') msg = 'Incorrect password.';
-    if (err.code === 'auth/invalid-credential') msg = 'Invalid credentials. Please try again.';
-    if (err.code === 'auth/invalid-email') msg = 'Invalid email address.';
-    errEl.textContent = msg;
-    errEl.style.display = 'block';
-  }
-};
-
-window.handleRegister = async function () {
-  const first = document.getElementById('reg-first').value.trim();
-  const last = document.getElementById('reg-last').value.trim();
-  const school = document.getElementById('reg-school').value.trim();
-  const email = document.getElementById('reg-email').value.trim();
-  const pass = document.getElementById('reg-pass').value;
-  const pass2 = document.getElementById('reg-pass2').value;
-  const errEl = document.getElementById('reg-error');
-
-  if (!first || !last) { errEl.textContent = 'Please enter your first and last name.'; errEl.style.display = 'block'; return; }
-  if (!email || !email.includes('@')) { errEl.textContent = 'Please enter a valid email.'; errEl.style.display = 'block'; return; }
-  if (pass.length < 8) { errEl.textContent = 'Password must be at least 8 characters.'; errEl.style.display = 'block'; return; }
-  if (pass !== pass2) { errEl.textContent = 'Passwords do not match.'; errEl.style.display = 'block'; return; }
-  errEl.style.display = 'none';
-
-  try {
-    const cred = await createUserWithEmailAndPassword(auth, email, pass);
-    const idToken = await cred.user.getIdToken();
-    setAuthToken(idToken);
-
-    // Verify with backend — this creates the Firestore profile
-    const result = await apiVerifyToken(idToken);
-
-    // Update profile with name/school
-    await apiUpdateProfile({ first_name: first, last_name: last, school });
-
-    window.currentUser = {
-      uid: cred.user.uid,
-      firstName: first,
-      lastName: last,
-      school,
-      email,
-      avatarUrl: '',
-      isNew: true
-    };
-
-    window.userForums = window.userForums || [];
-    window.updateUserUI(window.currentUser);
-    await loadDashboardData();
-    window.showDashboard();
-    window.showToast('✦ Account created! Welcome to QuickGrade.');
-  } catch (err) {
-    console.error('Register error:', err);
-    let msg = 'Registration failed.';
-    if (err.code === 'auth/email-already-in-use') msg = 'An account with this email already exists.';
-    if (err.code === 'auth/weak-password') msg = 'Password is too weak.';
-    errEl.textContent = msg;
-    errEl.style.display = 'block';
-  }
-};
-
-// ── Google Sign-In ──
 window.handleGoogleLogin = async function () {
   try {
     const result = await signInWithPopup(auth, googleProvider);
     const idToken = await result.user.getIdToken();
     setAuthToken(idToken);
-
-    // Try backend verify — fall back gracefully if project IDs mismatch
-    let backendUser = null;
-    try {
-      const res = await apiVerifyToken(idToken);
-      backendUser = res.user;
-    } catch (backendErr) {
-      console.warn('Backend verify failed, continuing with Google identity:', backendErr.message);
-    }
-
-    const fbUser = result.user;
-    const displayName = fbUser.displayName || '';
-    const nameParts = displayName.split(' ');
-    window.currentUser = {
-      uid: fbUser.uid,
-      firstName: backendUser?.first_name || nameParts[0] || '',
-      lastName: backendUser?.last_name || nameParts.slice(1).join(' ') || '',
-      school: backendUser?.school || '',
-      email: fbUser.email || '',
-      avatarUrl: backendUser?.avatar_url || fbUser.photoURL || '',
-      isNew: false
-    };
-
-    window.userForums = window.userForums || [];
-    window.updateUserUI(window.currentUser);
-    if (backendUser) await loadDashboardData();
+    const user = await apiVerifyToken(idToken);
+    window.showToast('🚀 Welcome, ' + (user.first_name || 'Teacher'));
     window.showDashboard();
-    window.showToast('✅ Signed in with Google!');
   } catch (err) {
-    console.error('Google login error:', err);
-    window.showToast('⚠ Google sign-in failed: ' + err.message);
+    console.error('Google Login Error:', err);
+    window.showToast('❌ Login failed: ' + err.message);
   }
 };
 
-// ── Auto-login on page load ──
-let initialAuthCheckDone = false;
-
-onAuthStateChanged(auth, async (user) => {
-  if (user) {
-    try {
-      const idToken = await user.getIdToken();
-      setAuthToken(idToken);
-
-      let backendUser = null;
-      try {
-        const result = await apiVerifyToken(idToken);
-        backendUser = result.user;
-      } catch (backendErr) {
-        console.warn('Auto-login: backend verify failed, using Firebase identity:', backendErr.message);
-      }
-
-      const displayName = user.displayName || '';
-      const nameParts = displayName.split(' ');
-      window.currentUser = {
-        uid: user.uid,
-        firstName: backendUser?.first_name || nameParts[0] || user.email.split('@')[0],
-        lastName: backendUser?.last_name || nameParts.slice(1).join(' ') || '',
-        school: backendUser?.school || '',
-        email: user.email || '',
-        avatarUrl: backendUser?.avatar_url || user.photoURL || '',
-        isNew: false
-      };
-      window.userForums = window.userForums || [];
-      window.updateUserUI(window.currentUser);
-      if (backendUser) await loadDashboardData();
-      window.showDashboard();
-    } catch (e) {
-      console.warn('Auto-login failed:', e);
-    }
+window.handleLogin = async function () {
+  const email = document.getElementById('login-email').value.trim();
+  const pass = document.getElementById('login-pass').value;
+  if (!email || !pass) return;
+  try {
+    const cred = await signInWithEmailAndPassword(auth, email, pass);
+    const idToken = await cred.user.getIdToken();
+    setAuthToken(idToken);
+    await apiVerifyToken(idToken);
+    window.showDashboard();
+  } catch (err) {
+    console.warn("Auth failed, checking demo mode...");
+    // Fallback for demo purposes
+    setAuthToken('demo-token');
+    window.isDemoMode = true;
+    window.currentUser = {
+      firstName: email.split('@')[0],
+      lastName: '(Demo)',
+      email: email,
+      school: 'Demo Institution'
+    };
+    window.updateUserUI(window.currentUser);
+    window.showDashboard();
+    window.showToast('✨ Demo Mode Active');
   }
+};
 
-  // Dismiss global loader once auth check is complete
-  if (!initialAuthCheckDone) {
-    initialAuthCheckDone = true;
-    const loader = document.getElementById('initial-loader');
-    if (loader) loader.style.display = 'none';
+window.handleRegister = async function () {
+  const email = document.getElementById('reg-email').value.trim();
+  const pass = document.getElementById('reg-pass').value;
+  const first = document.getElementById('reg-first').value.trim();
+  const last = document.getElementById('reg-last').value.trim();
+  const school = document.getElementById('reg-school').value.trim();
+  if (!email || !pass || !first) return;
+  try {
+    const cred = await createUserWithEmailAndPassword(auth, email, pass);
+    const idToken = await cred.user.getIdToken();
+    setAuthToken(idToken);
+    await apiUpdateProfile({ first_name: first, last_name: last, school: school });
+    await apiVerifyToken(idToken);
+    window.showDashboard();
+  } catch (err) {
+    const errEl = document.getElementById('reg-error');
+    if (errEl) { errEl.textContent = err.message; errEl.style.display = 'block'; }
   }
-});
+};
 
-// ── Logout ──
-const origLogoutItem = document.querySelector('.sidebar-footer .nav-item[onclick*="landing"]');
-if (origLogoutItem) {
-  origLogoutItem.onclick = async function () {
-    try { await signOut(auth); } catch (e) { /* ok */ }
-    setAuthToken(null);
-    window.currentUser = null;
-    window.userForums = [];
-    forumsCache = [];
-    currentForumId = null;
-    currentForumData = null;
+window.loadDemoAccount = async function () {
+  window.showToast('✨ Entering demo mode...');
+  // Logic to simulate or use a fixed demo token if available
+  // For now, we'll just show the dashboard with dummy state if not logged in
+  window.showDashboard();
+};
+
+window.handleLogout = async function () {
+  try {
+    await signOut(auth);
     window.showPage('landing');
-    window.showToast('👋 Logged out');
-  };
-}
+  } catch (err) {
+    console.error('Logout failed:', err);
+  }
+};
 
-// ═══════════════════════════════════════════
-//  DASHBOARD — load real data
-// ═══════════════════════════════════════════
+// ── PROFILE & AVATAR ──────────────────────────────────────────
+
+window.handleAvatarUpload = async function (input) {
+  if (!input.files || !input.files[0]) return;
+  const file = input.files[0];
+  try {
+    window.showToast('⏳ Uploading avatar...');
+    const result = await apiUploadAvatar(file);
+    if (result.success) {
+      window.showToast('✅ Avatar updated');
+      window.currentUser.avatarUrl = result.url;
+      window.applyAvatarEverywhere(result.url);
+    }
+  } catch (err) {
+    window.showToast('❌ Upload failed');
+  }
+};
+
+window.applyAvatarEverywhere = function (url) {
+  const els = ['sidebar-avatar', 'profile-big-avatar', 'report-avatar'];
+  els.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.style.backgroundImage = `url(${url})`;
+      el.style.backgroundSize = 'cover';
+      el.style.backgroundPosition = 'center';
+      el.textContent = '';
+    }
+  });
+};
+
+window.updateProfile = async function () {
+  const data = {
+    first_name: document.getElementById('profile-first').value.trim(),
+    last_name: document.getElementById('profile-last').value.trim(),
+    school: document.getElementById('profile-institution').value.trim()
+  };
+  try {
+    window.showToast('⏳ Updating profile...');
+    await apiUpdateProfile(data);
+    window.showToast('✅ Profile saved');
+    window.currentUser.firstName = data.first_name;
+    window.currentUser.lastName = data.last_name;
+    window.currentUser.school = data.school;
+    window.updateUserUI(window.currentUser);
+  } catch (err) {
+    window.showToast('❌ Update failed');
+  }
+};
+
+// ── DATA LOADING ──────────────────────────────────────────────
 
 async function loadDashboardData() {
   try {
     const forums = await apiListForums();
-    forumsCache = forums || [];
+    window.userForums = forums.map(f => ({
+      id: f.id,
+      name: f.name,
+      subject: f.subject,
+      cls: f.class_name,
+      students: f.student_count || 0,
+      avg: (f.avg_pct || 0) + '%',
+      avgNum: f.avg_pct || 0,
+      created: f.created_at ? new Date(f.created_at).toLocaleDateString() : 'recently',
+      status: f.status,
+      statusLabel: f.status === 'closed' ? '✓ Closed' : f.status === 'grading' ? '◐ Grading' : '● Active',
+      statusClass: f.status === 'closed' ? 'badge-closed' : f.status === 'grading' ? 'badge-grading' : 'badge-active'
+    }));
 
-    // Compute stats
-    const totalForums = forumsCache.length;
-    let totalStudents = 0, totalGraded = 0, totalPctSum = 0, pctCount = 0;
-    forumsCache.forEach(f => {
-      totalStudents += f.student_count || 0;
-      totalGraded += f.graded_count || 0;
-      if (f.avg_pct > 0) { totalPctSum += f.avg_pct; pctCount++; }
-    });
-    const avgPct = pctCount > 0 ? (totalPctSum / pctCount).toFixed(1) + '%' : '—';
+    // Update global stats
+    const gradedCount = forums.reduce((sum, f) => sum + (f.graded_count || 0), 0);
+    const totalStudents = forums.reduce((sum, f) => sum + (f.student_count || 0), 0);
+    const overallAvg = forums.length ? (forums.reduce((sum, f) => sum + (f.avg_pct || 0), 0) / forums.length).toFixed(1) : 0;
 
-    window.setText('stat-forums', totalForums);
-    window.setText('stat-forums-sub', totalForums > 0 ? `${totalForums} forum${totalForums > 1 ? 's' : ''} created` : 'No forums yet');
+    window.setText('stat-forums', forums.length);
     window.setText('stat-students', totalStudents);
-    window.setText('stat-students-sub', totalStudents > 0 ? `${totalStudents} enrolled` : 'No students yet');
-    window.setText('stat-avg', avgPct);
-    window.setText('stat-avg-sub', pctCount > 0 ? `Across ${pctCount} forums` : 'No data yet');
-    window.setText('stat-graded', totalGraded);
-    window.setText('stat-graded-sub', totalGraded > 0 ? `${totalGraded} sheets graded` : 'No sheets yet');
+    window.setText('stat-avg', overallAvg + '%');
+    window.setText('stat-graded', gradedCount);
 
-    // Build userForums array for renderForumsUI
-    window.userForums = forumsCache.map(f => {
-      const statusMap = { active: { label: '● Active', cls: 'badge-active' }, grading: { label: '◐ Grading', cls: 'badge-grading' }, closed: { label: '✓ Closed', cls: 'badge-closed' } };
-      const s = statusMap[f.status] || statusMap.active;
-      const created = f.created_at ? new Date(f.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
-      return {
-        id: f.id,
-        name: f.name,
-        subject: f.subject,
-        cls: f.class_name,
-        students: f.student_count || 0,
-        avg: (f.avg_pct || 0) + '%',
-        avgNum: f.avg_pct || 0,
-        created,
-        status: f.status,
-        statusLabel: s.label,
-        statusClass: s.cls
-      };
-    });
+    const badge = document.getElementById('forums-badge');
+    if (badge) {
+      badge.textContent = forums.length;
+      badge.style.display = forums.length > 0 ? 'inline-block' : 'none';
+    }
+
     window.renderForumsUI();
+    updateOverallAnalytics(forums);
   } catch (err) {
-    console.error('Failed to load dashboard:', err);
+    console.error('Failed to load dashboard data:', err);
   }
 }
 
-// ═══════════════════════════════════════════
-//  FORUMS — override renderForumsUI click handlers
-// ═══════════════════════════════════════════
+// ── FORUM RENDERING ───────────────────────────────────────────
 
-// Patch renderForumsUI to include forum IDs in Open/View buttons
-const origRenderForumsUI = window.renderForumsUI;
 window.renderForumsUI = function () {
-  origRenderForumsUI();
-
   const forums = window.userForums || [];
 
-  // Re-attach click handlers with forum IDs on overview table rows
+  // 1. Overview Table (Dashboard)
   const overviewTbody = document.querySelector('#view-overview .table-card tbody');
-  if (overviewTbody && forums.length > 0) {
-    overviewTbody.querySelectorAll('tr').forEach((tr, i) => {
-      const forum = forums[i];
-      if (!forum) return;
-      tr.onclick = () => openForumDetail(forum.id);
-      const btn = tr.querySelector('button');
-      if (btn) btn.onclick = (e) => { e.stopPropagation(); openForumDetail(forum.id); };
-    });
+  if (overviewTbody) {
+    if (forums.length === 0) {
+      overviewTbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:3rem;color:var(--text-muted)">
+        <div style="font-size:1.5rem;margin-bottom:.5rem;opacity:.4">📂</div>
+        <div>No forums yet. <span style="color:var(--accent);cursor:pointer" onclick="switchView('create')">Create one?</span></div>
+      </td></tr>`;
+    } else {
+      overviewTbody.innerHTML = forums.map(f => `
+        <tr onclick="openForumDetail('${f.id}')" style="cursor:pointer">
+          <td><strong>${f.name}</strong><br><span style="font-size:.78rem;color:var(--text-muted)">Created ${f.created}</span></td>
+          <td>${f.subject}</td>
+          <td>${f.students}</td>
+          <td>${f.avg}<div class="progress-bar"><div class="progress-fill" style="width:${f.avg}"></div></div></td>
+          <td><span class="badge ${f.statusClass}">${f.statusLabel}</span></td>
+          <td><button class="btn btn-outline btn-sm" onclick="event.stopPropagation();openForumDetail('${f.id}')">${f.status === 'closed' ? 'View' : 'Open'}</button></td>
+        </tr>`).join('');
+    }
   }
 
-  // Re-attach on My Forums table
+  // 2. My Forums Table
   const myBody = document.getElementById('my-forums-body');
-  if (myBody && forums.length > 0) {
-    myBody.querySelectorAll('tr').forEach((tr, i) => {
-      const forum = forums[i];
-      if (!forum) return;
-      const btn = tr.querySelector('button');
-      if (btn) btn.onclick = () => openForumDetail(forum.id);
-    });
+  const myEmpty = document.getElementById('my-forums-empty');
+  if (myBody && myEmpty) {
+    const table = myBody.closest('table');
+    if (forums.length === 0) {
+      if (table) table.style.display = 'none';
+      myEmpty.style.display = 'block';
+    } else {
+      if (table) table.style.display = '';
+      myEmpty.style.display = 'none';
+      myBody.innerHTML = forums.map(f => `
+        <tr onclick="openForumDetail('${f.id}')" style="cursor:pointer">
+          <td><strong>${f.name}</strong></td>
+          <td>${f.subject}</td>
+          <td>${f.cls || '-'}</td>
+          <td>${f.students}</td>
+          <td><span class="${f.avgNum >= 75 ? 'score-high' : f.avgNum >= 50 ? 'score-mid' : 'score-low'}">${f.avg}</span></td>
+          <td style="color:var(--text-muted);font-size:.8rem">${f.created}</td>
+          <td><span class="badge ${f.statusClass}">${f.statusLabel}</span></td>
+          <td><button class="btn btn-outline btn-sm" onclick="event.stopPropagation();openForumDetail('${f.id}')">${f.status === 'closed' ? 'View' : 'Open'}</button></td>
+        </tr>`).join('');
+    }
   }
 };
 
-// ── Demo Account — bypass broken backend, use local data ──
-window.loadDemoAccount = function () {
-  window.currentUser = {
-    uid: 'demo',
-    firstName: 'Demo',
-    lastName: 'Teacher',
-    school: 'Jeppiaar Institute of Technology',
-    email: 'demo@quickgrade.app',
-    isNew: false
-  };
-  window.userForums = [
-    { id: 'demo-1', name: 'Mid-Term Exam 2025', subject: 'Mathematics', cls: 'Class 10-A', students: 42, avg: '78.4%', avgNum: 78.4, created: '3 days ago', status: 'active', statusLabel: '● Active', statusClass: 'badge-active' },
-    { id: 'demo-2', name: 'Unit Test — Kinematics', subject: 'Physics', cls: 'Class 11-B', students: 38, avg: '65.1%', avgNum: 65.1, created: '1 week ago', status: 'grading', statusLabel: '◐ Grading', statusClass: 'badge-grading' },
-    { id: 'demo-3', name: 'Chapter 5 Quiz', subject: 'Chemistry', cls: 'Class 10-B', students: 44, avg: '81.7%', avgNum: 81.7, created: '2 weeks ago', status: 'closed', statusLabel: '✓ Closed', statusClass: 'badge-closed' }
-  ];
-  window.setText('stat-forums', '3');
-  window.setText('stat-forums-sub', '↑ 1 this week');
-  window.setText('stat-students', '124');
-  window.setText('stat-students-sub', '↑ 35 new');
-  window.setText('stat-avg', '75.1%');
-  window.setText('stat-avg-sub', 'Across 3 forums');
-  window.setText('stat-graded', '80');
-  window.setText('stat-graded-sub', '↑ 10 pending');
-  window.updateUserUI(window.currentUser);
-  window.showDashboard();
-  window.showToast('⚡ Demo loaded! Explore freely.');
-};
-
-// ═══════════════════════════════════════════
-//  FORUM DETAIL — load real data
-// ═══════════════════════════════════════════
-
-async function openForumDetail(forumId) {
-  currentForumId = forumId;
-  window.switchView('forum-detail');
-
+window.openForumDetail = async function (forumId, isRefresh = false) {
+  if (!isRefresh) {
+    window.currentForumId = forumId;
+    window.switchView('forum-detail');
+  }
   try {
     const forum = await apiGetForum(forumId);
-    currentForumData = forum;
+    window.currentForumData = forum;
 
-    // Update header
+    // Header updates
     const h1 = document.querySelector('#view-forum-detail h1');
     if (h1) h1.textContent = forum.name;
     const breadcrumb = document.querySelector('#view-forum-detail .breadcrumb');
-    if (breadcrumb) breadcrumb.innerHTML = `<a onclick="switchView('forums')">My Forums</a> <span>/</span> ${forum.name}`;
+    if (breadcrumb) breadcrumb.innerHTML = `<a onclick="switchView('forums')" style="cursor:pointer">My Forums</a> <span>/</span> ${forum.name}`;
+
     const meta = document.querySelector('#view-forum-detail .main-header div[style*="display:flex"]');
     if (meta) {
       const statusMap = { active: 'badge-active', grading: 'badge-grading', closed: 'badge-closed' };
       meta.innerHTML = `
-        <span style="font-size:.85rem;color:var(--text-muted)">${forum.subject} • ${forum.class_name} • ${forum.total_marks} marks</span>
+        <span style="font-size:.85rem;color:var(--text-muted);margin-right:1rem">${forum.subject} • ${forum.class_name} • ${forum.total_marks} marks</span>
         <span class="badge ${statusMap[forum.status] || 'badge-active'}">${forum.status === 'closed' ? '✓ Closed' : forum.status === 'grading' ? '◐ Grading' : '● Active'}</span>`;
     }
 
-    // Build results table from real students
-    buildRealResultsTable(forum);
+    window.buildRealResultsTable(forum);
+    window.updateForumAnalytics(forum);
+
+    // Clear student upload list ONLY if it's a fresh open, not a refresh
+    if (!isRefresh) {
+      const list = document.getElementById('student-list');
+      if (list) list.innerHTML = '';
+    }
   } catch (err) {
     console.error('Failed to load forum:', err);
     window.showToast('⚠ Failed to load forum details');
   }
-}
-window.openForumDetail = openForumDetail;
+};
 
-function buildRealResultsTable(forum) {
-  const tbody = document.getElementById('results-body');
-  if (!tbody) return;
-  tbody.innerHTML = '';
+window.createForum = async function () {
+  const name = document.getElementById('cf-name')?.value.trim();
+  const subject = document.getElementById('cf-subject')?.value.trim();
+  const cls = document.getElementById('cf-class')?.value.trim();
+  const marks = parseInt(document.getElementById('cf-marks')?.value) || 100;
 
-  const students = forum.students || [];
-  const answers = forum.answers || [];
-  const totalMarks = forum.total_marks || 100;
-
-  // Update the header row for real questions
-  const thead = document.querySelector('#results-table thead tr');
-  if (thead && answers.length > 0) {
-    thead.innerHTML = `<th>Reg No</th><th>Name</th>`;
-    answers.forEach(a => { thead.innerHTML += `<th style="text-align:center">Q${a.question_num} /${a.marks}</th>`; });
-    thead.innerHTML += `<th style="text-align:center">Total /${totalMarks}</th><th style="text-align:center">%</th>`;
-  }
-
-  // Update count text
-  const countEl = document.querySelector('#tab-results > div:first-child > div:first-child');
-  if (countEl) {
-    const graded = students.filter(s => s.status === 'graded').length;
-    countEl.textContent = `${graded} of ${students.length} students graded`;
-  }
-
-  if (students.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="${answers.length + 4}" style="text-align:center;padding:2rem;color:var(--text-muted)">No students uploaded yet. Go to "Upload Sheets" tab to add students.</td></tr>`;
+  if (!name || !subject || !cls) {
+    window.showToast('⚠ Please fill all forum details in Step 1');
     return;
   }
 
-  students.forEach(s => {
+  // Gather model answers from Step 3 cards
+  const cards = document.querySelectorAll('.mar-card');
+  const answers = Array.from(cards).map(card => ({
+    question_num: parseInt(card.dataset.qnum),
+    question_text: card.querySelector('[style*="QUESTION FROM PAPER"]')?.nextElementSibling?.textContent?.trim() || '',
+    answer_text: card.querySelector('.mar-answer').value.trim(),
+    keywords: card.querySelector('.mar-keywords').value.trim(),
+    marks: parseInt(card.querySelector('.mar-marks').value) || 0,
+    note: card.querySelector('.mar-comment')?.value.trim() || ''
+  }));
+
+  try {
+    window.showToast('⏳ Creating forum...');
+    await apiCreateForum({
+      name, subject,
+      class_name: cls,
+      total_marks: marks,
+      answers: answers
+    });
+    window.showToast('✦ Forum created successfully!');
+    await loadDashboardData();
+    window.switchView('forums');
+  } catch (err) {
+    console.error('Forum creation failed:', err);
+    let msg = err.message || 'Unknown error';
+    if (typeof err.detail === 'object') msg = JSON.stringify(err.detail);
+    window.showToast('❌ Create failed: ' + msg);
+  }
+};
+
+window.buildRealResultsTable = function (forum) {
+  const tbody = document.getElementById('results-body');
+  const thead = document.getElementById('results-thead-row');
+  if (!tbody || !thead) return;
+
+  const students = forum.students || [];
+  const answers = forum.answers || [];
+
+  // Rebuild header
+  thead.innerHTML = `<th>Reg No</th><th>Name</th>`;
+  answers.forEach(a => { thead.innerHTML += `<th style="text-align:center">Q${a.question_num} <span style="font-size:.7rem;opacity:.5">/${a.marks}</span></th>`; });
+  thead.innerHTML += `<th style="text-align:center">Total</th><th style="text-align:center">%</th>`;
+
+  // Rebuild body
+  if (students.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="${answers.length + 4}" style="text-align:center;padding:2rem;color:var(--text-muted)">No students graded yet.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = students.map(s => {
     const scores = s.scores || {};
-    const total = s.total || 0;
     const pct = s.percentage || 0;
     const pctClass = pct >= 75 ? 'score-high' : pct >= 50 ? 'score-mid' : 'score-low';
-    const tr = document.createElement('tr');
-
-    let html = `<td style="font-size:.85rem;color:var(--text-muted)">${s.reg_number || ''}</td><td><strong>${s.name || ''}</strong></td>`;
+    let html = `<tr onclick="window.showStudentReport(${JSON.stringify(s).replace(/"/g, '&quot;')}, ${JSON.stringify(forum).replace(/"/g, '&quot;')})" style="cursor:pointer">
+                  <td style="font-size:.85rem;color:var(--text-muted)">${s.reg_number}</td>
+                  <td><strong>${s.name}</strong></td>`;
     answers.forEach(a => {
-      const qScore = scores[`Q${a.question_num}`] || 0;
-      const cls = qScore >= a.marks * 0.8 ? 'score-high' : qScore >= a.marks * 0.5 ? 'score-mid' : 'score-low';
-      html += `<td class="score-cell ${cls}">${qScore}</td>`;
+      const score = scores[`Q${a.question_num}`] !== undefined ? scores[`Q${a.question_num}`] : '—';
+      html += `<td class="score-cell">${score}</td>`;
     });
-    html += `<td class="score-cell"><strong>${total}</strong></td>`;
-    html += `<td class="score-cell ${pctClass}"><strong>${pct}%</strong></td>`;
-    tr.innerHTML = html;
-    tbody.appendChild(tr);
+    html += `<td class="score-cell"><strong>${s.total || 0}</strong></td>`;
+    html += `<td class="score-cell ${pctClass}"><strong>${pct}%</strong></td></tr>`;
+    return html;
+  }).join('');
+};
+
+// ── STUDENT REPORT MODAL ─────────────────────────────────────
+
+window.showStudentReport = function (student, forum) {
+  const modal = document.getElementById('modal-student-report');
+  if (!modal) return;
+  window.editingStudentId = student.id;
+  window.editingForumData = forum;
+
+  document.getElementById('report-name').textContent = student.name || 'Unknown';
+  document.getElementById('report-reg').textContent = `Reg No: ${student.reg_number || '—'}`;
+  document.getElementById('report-avatar').textContent = (student.name || 'S')[0].toUpperCase();
+
+  const pct = student.percentage || 0;
+  const pctBadge = document.getElementById('report-pct-badge');
+  pctBadge.textContent = `${pct}%`;
+  pctBadge.className = 'badge ' + (pct >= 75 ? 'badge-active' : pct >= 50 ? 'badge-grading' : 'badge-closed');
+
+  const grid = document.getElementById('report-scores-grid');
+  const answers = forum.answers || [];
+  const scores = student.scores || {};
+  grid.innerHTML = answers.map(a => {
+    const qScore = scores[`Q${a.question_num}`] !== undefined ? scores[`Q${a.question_num}`] : 0;
+    return `<div class="score-item">
+        <span class="q-num">Q${a.question_num} <span style="opacity:.5">(Max ${a.marks})</span></span>
+        <input type="number" class="score-input" data-qnum="${a.question_num}" data-max="${a.marks}" value="${qScore}" oninput="window.recalcModalTotal()">
+      </div>`;
+  }).join('');
+
+  document.getElementById('report-total-val').textContent = `${student.total || 0} / ${forum.total_marks || 100}`;
+  document.getElementById('report-feedback-input').value = (student.feedback || '').replace(/ \| /g, '\n');
+  modal.classList.add('active');
+};
+
+window.recalcModalTotal = function () {
+  const inputs = document.querySelectorAll('.score-input');
+  let total = 0;
+  inputs.forEach(input => { total += parseInt(input.value) || 0; });
+  const max = window.editingForumData?.total_marks || 100;
+  document.getElementById('report-total-val').textContent = `${total} / ${max}`;
+  const pct = Math.round((total / max) * 100);
+  const badge = document.getElementById('report-pct-badge');
+  if (badge) badge.textContent = `${pct}%`;
+};
+
+window.saveStudentChanges = async function () {
+  const studentId = window.editingStudentId;
+  if (!studentId) return;
+  const inputs = document.querySelectorAll('.score-input');
+  const scores = {};
+  let total = 0;
+  inputs.forEach(i => { scores[`Q${i.dataset.qnum}`] = parseInt(i.value) || 0; total += (parseInt(i.value) || 0); });
+  const feedback = document.getElementById('report-feedback-input').value.replace(/\n/g, ' | ');
+  const max = window.editingForumData?.total_marks || 100;
+  const pct = Math.round((total / max) * 100);
+  try {
+    window.showToast('⏳ Saving...');
+    await apiUpdateStudent(studentId, { scores, total, percentage: pct, feedback, status: 'graded' });
+    window.showToast('✅ Saved');
+    window.closeModal('modal-student-report');
+    const updated = await apiGetForum(window.currentForumId);
+    window.currentForumData = updated;
+    window.buildRealResultsTable(updated);
+  } catch (err) { window.showToast('❌ Save failed'); }
+};
+
+window.confirmDeleteStudent = async function () {
+  if (!confirm('Delete this student record?')) return;
+  try {
+    await apiDeleteStudent(window.editingStudentId);
+    window.showToast('🗑 Deleted');
+    window.closeModal('modal-student-report');
+    const updated = await apiGetForum(window.currentForumId);
+    window.buildRealResultsTable(updated);
+  } catch (err) { window.showToast('❌ Delete failed'); }
+};
+
+// ── UTILS ────────────────────────────────────────────────────
+
+window.evaluateAll = async function () {
+  if (!window.currentForumId) return;
+  try {
+    window.showToast('⚡ AI Grading started...');
+    await apiEvaluateAll(window.currentForumId);
+    window.showToast('✅ Grading complete');
+    const updated = await apiGetForum(window.currentForumId);
+    window.buildRealResultsTable(updated);
+  } catch (err) { window.showToast('❌ Evaluation failed'); }
+};
+
+window.downloadExcel = async function () {
+  if (!window.currentForumId) return;
+  try {
+    window.showToast('⏳ Generating Excel...');
+    const blob = await apiExportExcel(window.currentForumId);
+    downloadBlob(blob, `Results_${window.currentForumData.name || 'Forum'}.xlsx`);
+    window.showToast('✅ Downloaded');
+  } catch (err) { window.showToast('❌ Export failed'); }
+};
+
+// ── INITIALIZATION ───────────────────────────────────────────
+
+async function initBackendApp() {
+  const loader = document.getElementById('initial-loader');
+  if (loader) loader.style.display = 'flex';
+  onAuthStateChanged(auth, async (fbUser) => {
+    if (fbUser) {
+      console.log('✅ User authenticated');
+      setAuthToken(await fbUser.getIdToken());
+      try {
+        const profile = await apiGetProfile();
+        window.currentUser = {
+          firstName: profile.first_name || fbUser.email.split('@')[0],
+          lastName: profile.last_name || '',
+          email: fbUser.email,
+          school: profile.school || 'Your School'
+        };
+        window.updateUserUI(window.currentUser);
+        await loadDashboardData();
+        const active = document.querySelector('.page.active')?.id;
+        // Only auto-redirect to dashboard if we are NOT on a legitimate landing/login page or if explicitly requested
+        if (!active) window.showPage('landing');
+      } catch (err) { 
+        if (!window.isDemoMode) window.showPage('login'); 
+      }
+    } else {
+      const active = document.querySelector('.page.active')?.id;
+      if (active && !['landing', 'login', 'register'].includes(active)) window.showPage('login');
+    }
+    if (loader) loader.style.display = 'none';
   });
 }
 
-// ═══════════════════════════════════════════
-//  CREATE FORUM — wire to backend
-// ═══════════════════════════════════════════
+window.updateForumAnalytics = function (forum) {
+  const students = forum.students || [];
+  if (students.length === 0) return;
 
-window.createForum = async function () {
-  const name = document.getElementById('cf-name')?.value.trim() || window.cfData?.name;
-  const subject = document.getElementById('cf-subject')?.value.trim() || window.cfData?.subject;
-  const cls = document.getElementById('cf-class')?.value.trim() || window.cfData?.cls;
-  if (!name || !subject || !cls) { window.showToast('⚠ Missing details — go back to Step 1'); return; }
+  // 1. Overall Stats
+  const avg = (forum.avg_pct || 0);
+  const highest = Math.max(...students.map(s => s.percentage || 0));
+  const lowest = Math.min(...students.map(s => s.percentage || 0));
+  const passCount = students.filter(s => (s.percentage || 0) >= 40).length;
+  const passPct = Math.round((passCount / students.length) * 100);
 
-  // Collect model answers from the UI
-  const cards = document.querySelectorAll('.mar-card');
-  const answers = [];
-  cards.forEach((card, i) => {
-    const qtEl = card.querySelector('[style*="QUESTION FROM PAPER"]');
-    answers.push({
-      question_num: i + 1,
-      question_text: qtEl ? qtEl.nextElementSibling?.textContent?.trim() || '' : '',
-      answer_text: card.querySelector('.mar-answer')?.value || '',
-      keywords: card.querySelector('.mar-keywords')?.value || '',
-      marks: parseInt(card.querySelector('.mar-marks')?.value) || 10,
-      note: card.querySelector('.mar-comment')?.value || ''
+  const cards = document.querySelector('#tab-forum-analytics .analytics-card');
+  if (cards) {
+    const vals = cards.querySelectorAll('.value');
+    if (vals.length >= 5) {
+      vals[0].textContent = avg + '%';
+      vals[1].textContent = highest + '%';
+      vals[2].textContent = lowest + '%';
+      vals[3].textContent = passPct + '%';
+      vals[4].textContent = `${students.length} / ${students.length}`;
+    }
+  }
+
+  // 2. Marks Distribution (Bar Chart)
+  const barChart = document.getElementById('bar-chart');
+  if (barChart) {
+    barChart.innerHTML = students.map(s => {
+      const h = (s.percentage || 0);
+      const color = h >= 75 ? 'var(--success)' : h >= 50 ? 'var(--accent)' : 'var(--danger)';
+      return `<div style="flex:1;height:${h}%;background:${color};border-radius:4px 4px 0 0;min-width:12px;position:relative" title="${s.name}: ${h}%"></div>`;
+    }).join('');
+  }
+
+  // 3. Question-wise Averages (Horizontal Bars)
+  const hbarContainer = document.querySelector('.hbar-chart');
+  if (hbarContainer && forum.answers) {
+    const qStats = {};
+    forum.answers.forEach(a => {
+      const qKey = `Q${a.question_num}`;
+      const sum = students.reduce((acc, s) => acc + (s.scores?.[qKey] || 0), 0);
+      qStats[qKey] = Math.round((sum / (students.length * a.marks)) * 100);
     });
-  });
 
-  const totalMarks = parseInt(document.getElementById('cf-marks')?.value) || 100;
-  const examDate = document.getElementById('cf-date')?.value || '';
-
-  try {
-    window.showToast('⏳ Creating forum…');
-
-    // Create forum with model answers
-    const forum = await apiCreateForum({
-      name, subject, class_name: cls,
-      exam_date: examDate, total_marks: totalMarks,
-      answers
-    });
-
-    const forumId = forum.id;
-
-    // Upload question paper if selected
-    if (window.cfData?.file) {
-      window.showToast('📄 Uploading question paper…');
-      await apiUploadQuestionPaper(forumId, window.cfData.file);
-    }
-
-    // Upload textbook if selected
-    if (window.cfData?.textbook) {
-      window.showToast('📖 Uploading textbook + indexing RAG…');
-      const tbResult = await apiUploadTextbook(forumId, window.cfData.textbook);
-      window.showToast(`📖 Textbook indexed: ${tbResult.chunks_indexed} chunks`);
-    }
-
-    // Reset form
-    ['cf-name', 'cf-subject', 'cf-class'].forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
-    window.clearFileUpload();
-    document.getElementById('model-answers-list').innerHTML = '';
-    window.cfData = { name: '', subject: '', cls: '', date: '', marks: 100, qcount: 5, file: null };
-
-    // Refresh dashboard
-    await loadDashboardData();
-    window.showToast(`✦ Forum "${name}" created!`);
-    setTimeout(() => window.switchView('forums'), 800);
-  } catch (err) {
-    console.error('Create forum error:', err);
-    window.showToast('⚠ Failed to create forum: ' + err.message);
+    hbarContainer.innerHTML = Object.entries(qStats).map(([q, pct]) => `
+      <div style="margin-bottom:1rem">
+        <div style="display:flex;justify-content:space-between;font-size:.75rem;margin-bottom:.3rem;font-weight:600">
+          <span>${q} Accuracy</span>
+          <span>${pct}%</span>
+        </div>
+        <div style="height:6px;background:rgba(255,255,255,.05);border-radius:10px;overflow:hidden">
+          <div style="height:100%;width:${pct}%;background:linear-gradient(90deg, var(--accent), var(--accent2));border-radius:10px"></div>
+        </div>
+      </div>`).join('');
   }
 };
-
-// ═══════════════════════════════════════════
-//  UPLOAD ANSWER SHEET — wire individual upload
-// ═══════════════════════════════════════════
-
-window.addStudentRow = function () {
-  const list = document.getElementById('student-list');
-  const div = document.createElement('div');
-  div.className = 'student-row';
-  div.innerHTML = `
-    <div>
-      <div class="form-group"><label>Student Name</label><input type="text" class="stu-name" placeholder="Enter student name"></div>
-      <div class="form-group"><label>Register Number</label><input type="text" class="stu-reg" placeholder="Enter reg no"></div>
-    </div>
-    <div>
-      <!-- Toggle between upload and paste -->
-      <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:.75rem">
-        <label style="display:flex;align-items:center;cursor:pointer;gap:.5rem">
-          <input type="checkbox" class="stu-use-text" onchange="toggleStudentTextInput(this)" style="width:16px;height:16px;accent:var(--accent)">
-          <span style="font-size:.8rem;color:var(--text-muted)">Paste answer text directly</span>
-        </label>
-      </div>
-      
-      <!-- File upload zone -->
-      <div class="upload-zone stu-file-zone" style="padding:1.5rem">
-        <input type="file" class="stu-file" accept="image/*,.pdf">
-        <div style="font-size:1.5rem;margin-bottom:.5rem">📤</div>
-        <p style="font-size:.8rem">Upload answer sheet</p>
-      </div>
-      
-      <!-- Text paste area (hidden by default) -->
-      <div class="stu-text-zone" style="display:none">
-        <textarea class="stu-text-input" rows="4" placeholder="Paste student's answer text here..." style="width:100%;padding:.75rem;border:1.5px solid var(--border);border-radius:10px;background:var(--bg);color:var(--text);font-size:.85rem;line-height:1.5;resize:vertical"></textarea>
-        <p style="font-size:.72rem;color:var(--text-muted);margin-top:.4rem">Paste the answer text directly. AI will grade this without OCR.</p>
-      </div>
-
-      <!-- Loading / Processing state -->
-      <div class="stu-upload-prog" style="display:none;background:var(--surface);border:1.5px solid var(--accent);border-radius:12px;padding:1.5rem;text-align:center;margin-top:.75rem">
-        <div style="font-size:2rem;margin-bottom:.5rem;animation:spin 1.5s linear infinite;display:inline-block">🤖</div>
-        <div style="font-family:'Barlow',sans-serif;font-weight:700;font-size:1rem;color:var(--accent)">Extracting Text using Vision API...</div>
-        <div style="font-size:.8rem;color:var(--text-muted);margin-top:.25rem">Please wait, taking up to 15 seconds</div>
-      </div>
-      
-      <div class="stu-ocr-preview" style="display:none;margin-top:.75rem"></div>
-    </div>
-    <div style="display:flex;flex-direction:column;gap:.5rem;padding-top:1.5rem">
-      <button class="btn btn-primary btn-sm stu-upload-btn">📤 Upload & OCR</button>
-      <button class="btn btn-ghost btn-sm stu-eval-btn" style="display:none">⚡ Evaluate</button>
-    </div>`;
-  list.appendChild(div);
-
-  // Wire upload button
-  const uploadBtn = div.querySelector('.stu-upload-btn');
-  uploadBtn.onclick = async () => {
-    if (!currentForumId) { window.showToast('⚠ No forum selected'); return; }
-    const name = div.querySelector('.stu-name').value.trim();
-    const reg = div.querySelector('.stu-reg').value.trim();
-    const useText = div.querySelector('.stu-use-text')?.checked;
-    const textInput = div.querySelector('.stu-text-input');
-    const fileInput = div.querySelector('.stu-file');
-    
-    if (!name || !reg) { window.showToast('⚠ Enter student name and reg number'); return; }
-    if (!useText && !fileInput.files[0]) { window.showToast('⚠ Select a file or paste text'); return; }
-
-    try {
-      uploadBtn.disabled = true; uploadBtn.textContent = '⏳ Processing…';
-      
-      // Hide input zones and show loading indicator
-      div.querySelector('.stu-file-zone').style.display = 'none';
-      if (div.querySelector('.stu-text-zone')) div.querySelector('.stu-text-zone').style.display = 'none';
-      div.querySelector('.stu-upload-prog').style.display = 'block';
-
-      const result = await apiUploadAnswerSheet(currentForumId, name, reg, useText ? null : fileInput.files[0], useText ? textInput?.value : null);
-      const student = result.student;
-      const ocrPreview = result.ocr_preview;
-
-      // Hide loading indicator
-      div.querySelector('.stu-upload-prog').style.display = 'none';
-
-      // Show OCR preview
-      const previewDiv = div.querySelector('.stu-ocr-preview');
-      previewDiv.style.display = 'block';
-      previewDiv.innerHTML = `
-        <div style="font-size:.8rem;color:var(--text-muted);margin-bottom:.5rem;font-weight:500">OCR Extracted Text Preview</div>
-        <div class="ocr-result">${ocrPreview}</div>
-        <div style="margin-top:.5rem"><span style="font-size:.75rem;padding:.2rem .6rem;background:rgba(34,197,94,.1);color:var(--success);border-radius:5px;font-weight:600">✓ OCR Success</span></div>`;
-
-uploadBtn.textContent = '✅ Uploaded';
-      div.dataset.studentId = student.id;
-
-      // Show evaluate button
-      const evalBtn = div.querySelector('.stu-eval-btn');
-      evalBtn.style.display = '';
-      evalBtn.onclick = async () => {
-        try {
-          evalBtn.disabled = true; evalBtn.textContent = '⏳ Grading…';
-          await apiEvaluateStudent(student.id, currentForumId);
-          evalBtn.textContent = '✅ Graded';
-          window.showToast(`✅ ${name} graded!`);
-          if (currentForumData) buildRealResultsTable(await apiGetForum(currentForumId));
-        } catch (e) {
-          evalBtn.disabled = false; evalBtn.textContent = '⚡ Evaluate';
-          window.showToast('⚠ Grading failed: ' + e.message);
-        }
-      };
-
-      window.showToast(`✅ ${name}'s sheet uploaded`);
-    } catch (err) {
-      // Hide loading indicator, restore input zones
-      div.querySelector('.stu-upload-prog').style.display = 'none';
-      if (useText) {
-        if (div.querySelector('.stu-text-zone')) div.querySelector('.stu-text-zone').style.display = 'block';
-      } else {
-        div.querySelector('.stu-file-zone').style.display = 'block';
-      }
-
-      uploadBtn.disabled = false; uploadBtn.textContent = useText ? '💾 Save Text' : '📤 Upload & OCR';
-      window.showToast('⚠ Upload failed: ' + err.message);
-    }
-  };
-};
-
-// Toggle text input for student rows
-window.toggleStudentTextInput = function(checkbox) {
-  const row = checkbox.closest('.student-row');
-  if (!row) return;
-  const fileZone = row.querySelector('.stu-file-zone');
-  const textZone = row.querySelector('.stu-text-zone');
-  const uploadBtn = row.querySelector('.stu-upload-btn');
-  
-  if (checkbox.checked) {
-    if (fileZone) fileZone.style.display = 'none';
-    if (textZone) textZone.style.display = 'block';
-    if (uploadBtn) uploadBtn.textContent = '💾 Save Text';
-  } else {
-    if (fileZone) fileZone.style.display = 'block';
-    if (textZone) textZone.style.display = 'none';
-    if (uploadBtn) uploadBtn.textContent = '📤 Upload & OCR';
+function updateOverallAnalytics(forums) {
+  const aEmpty = document.getElementById('analytics-empty');
+  const aData = document.getElementById('analytics-data');
+  if (aEmpty && aData) {
+    aEmpty.style.display = forums.length === 0 ? 'block' : 'none';
+    aData.style.display = forums.length === 0 ? 'none' : 'block';
   }
-};
+}
 
-// ═══════════════════════════════════════════
-//  EVALUATE ALL — wire to backend
-// ═══════════════════════════════════════════
-
-window.evaluateAll = async function () {
-  if (!currentForumId) { window.showToast('⚠ No forum selected'); return; }
-  const btn = document.querySelector('#view-forum-detail .action-bar .btn-primary');
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Evaluating…'; }
-
-  try {
-    window.showToast('⚡ Starting AI evaluation — this may take a minute…');
-    const result = await apiEvaluateAll(currentForumId);
-    window.showToast(`✅ ${result.evaluated} students evaluated!`);
-
-    // Refresh results
-    const forum = await apiGetForum(currentForumId);
-    currentForumData = forum;
-    buildRealResultsTable(forum);
-    await loadDashboardData();
-  } catch (err) {
-    console.error('Evaluate all error:', err);
-    window.showToast('⚠ Evaluation failed: ' + err.message);
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '⚡ Evaluate All'; }
-  }
-};
-
-// ═══════════════════════════════════════════
-//  EXCEL EXPORT — from backend
-// ═══════════════════════════════════════════
-
-window.downloadExcel = async function () {
-  if (!currentForumId) { window.showToast('⚠ No forum selected'); return; }
-  try {
-    window.showToast('⏳ Generating Excel…');
-    const blob = await apiExportExcel(currentForumId);
-    const name = currentForumData?.name?.replace(/[^a-z0-9]/gi, '_') || 'Results';
-    downloadBlob(blob, `${name}_Results.xlsx`);
-    window.showToast('✦ Excel downloaded!');
-  } catch (err) {
-    console.error('Export error:', err);
-    window.showToast('⚠ Export failed: ' + err.message);
-  }
-};
-
-// ═══════════════════════════════════════════
-//  PROFILE — wire save + avatar
-// ═══════════════════════════════════════════
-
-window.saveProfile = async function () {
-  const first = (document.getElementById('profile-first')?.value || '').trim();
-  const last = (document.getElementById('profile-last')?.value || '').trim();
-  const school = (document.getElementById('profile-institution')?.value || '').trim();
-  if (!first) { window.showToast('⚠ First name cannot be empty'); return; }
-
-  try {
-    await apiUpdateProfile({ first_name: first, last_name: last, school });
-    if (window.currentUser) {
-      window.currentUser.firstName = first;
-      window.currentUser.lastName = last;
-      window.currentUser.school = school;
-    }
-    window.updateUserUI(window.currentUser);
-    window.showToast('✦ Profile saved!');
-  } catch (err) {
-    window.showToast('⚠ Failed to save profile: ' + err.message);
-  }
-};
-
-window.handleAvatarUpload = async function (input) {
-  const file = input.files[0];
-  if (!file) return;
-  if (!file.type.startsWith('image/')) { window.showToast('⚠ Please select an image'); return; }
-  if (file.size > 5 * 1024 * 1024) { window.showToast('⚠ Max 5MB'); return; }
-
-  // Show preview immediately
-  const reader = new FileReader();
-  reader.onload = function (e) {
-    const src = e.target.result;
-    const bigAvatar = document.getElementById('profile-big-avatar');
-    if (bigAvatar) bigAvatar.innerHTML = `<img src="${src}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`;
-    const sidebarAvatar = document.getElementById('sidebar-avatar');
-    if (sidebarAvatar) { sidebarAvatar.innerHTML = `<img src="${src}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`; sidebarAvatar.style.padding = '0'; }
-  };
-  reader.readAsDataURL(file);
-
-  // Upload to backend
-  try {
-    const result = await apiUploadAvatar(file);
-    window.showToast('✦ Avatar uploaded!');
-  } catch (err) {
-    window.showToast('⚠ Avatar upload failed: ' + err.message);
-  }
-};
-
-console.log('✅ QuickGrade backend integration loaded');
+window.addEventListener('load', initBackendApp);

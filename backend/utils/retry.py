@@ -1,25 +1,8 @@
-"""
-utils/retry.py
-==============
-Generic exponential-back-off retry decorator used by OCR engines and the DB layer.
-"""
-
 import time
 import functools
 from utils.logger import get_logger
-
 log = get_logger("retry")
-
-
 def retry(max_attempts: int = 3, backoff: float = 1.5, exceptions=(Exception,)):
-    """
-    Decorator factory: retry *fn* up to *max_attempts* times on *exceptions*.
-    Delay doubles after each failure (exponential back-off).
-
-    Usage:
-        @retry(max_attempts=3, backoff=1.5)
-        def flaky_function(): ...
-    """
     def decorator(fn):
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
@@ -42,6 +25,6 @@ def retry(max_attempts: int = 3, backoff: float = 1.5, exceptions=(Exception,)):
                             "%s failed after %d attempts: %s",
                             fn.__qualname__, max_attempts, exc,
                         )
-            raise last_exc  # re-raise after all retries exhausted
+            raise last_exc  
         return wrapper
     return decorator

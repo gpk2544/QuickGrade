@@ -1,8 +1,4 @@
--- QuickGrade Database Schema
--- Run this once in Supabase Dashboard → SQL Editor
-
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-
 CREATE TABLE users (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   email         TEXT UNIQUE NOT NULL,
@@ -13,7 +9,6 @@ CREATE TABLE users (
   avatar_url    TEXT,
   created_at    TIMESTAMPTZ DEFAULT now()
 );
-
 CREATE TABLE forums (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   teacher_id         UUID REFERENCES users(id) ON DELETE CASCADE,
@@ -27,7 +22,6 @@ CREATE TABLE forums (
   textbook_url       TEXT,
   created_at         TIMESTAMPTZ DEFAULT now()
 );
-
 CREATE TABLE students (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   forum_id     UUID REFERENCES forums(id) ON DELETE CASCADE,
@@ -42,7 +36,6 @@ CREATE TABLE students (
   evaluated_at TIMESTAMPTZ,
   created_at   TIMESTAMPTZ DEFAULT now()
 );
-
 CREATE TABLE model_answers (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   forum_id     UUID REFERENCES forums(id) ON DELETE CASCADE,
@@ -52,7 +45,6 @@ CREATE TABLE model_answers (
   marks        INT NOT NULL,
   note         TEXT DEFAULT ''
 );
-
 CREATE INDEX ON forums(teacher_id);
 CREATE INDEX ON students(forum_id);
 CREATE INDEX ON model_answers(forum_id);

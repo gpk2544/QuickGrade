@@ -7,12 +7,26 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/main.css">
+  <link rel="stylesheet" href="css/main.css?v=10">
 </head>
 <body>
-<!-- ═══════════════════════════════════════════
-     INITIAL LOADER (Prevents UI flash)
-════════════════════════════════════════════ -->
+<script>
+  // Global error handler to help debug why the site won't open
+  window.onerror = function(msg, url, line) {
+    console.error("Critical Error:", msg, "at", url, ":", line);
+    // If it's still loading, hide the loader so user can at least see the landing page
+    const loader = document.getElementById('initial-loader');
+    if (loader) loader.style.display = 'none';
+  };
+  // Failsafe: Hide loader after 4 seconds even if scripts hang
+  setTimeout(() => {
+    const loader = document.getElementById('initial-loader');
+    if (loader && loader.style.display !== 'none') {
+      console.warn("Failsafe: Hiding loader after timeout.");
+      loader.style.display = 'none';
+    }
+  }, 4000);
+</script>
 <div id="initial-loader" style="position:fixed;top:0;left:0;width:100vw;height:100vh;background:#06080d;z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column">
   <div style="font-size:3rem;margin-bottom:1rem;animation:spin 1.5s linear infinite">🤖</div>
   <div style="font-family:'Barlow',sans-serif;font-weight:700;font-size:1.2rem;color:var(--text)">Quick<span style="color:var(--accent)">Grade</span></div>
@@ -608,7 +622,7 @@
            <!-- Paste Text Toggle -->
            <div style="margin-top:1rem;display:flex;align-items:center;gap:.75rem">
              <label style="display:flex;align-items:center;cursor:pointer;gap:.5rem">
-               <input type="checkbox" id="use-paste-text" onchange="togglePasteText()" style="width:18px;height:18px;accent:var(--accent)">
+               <input type="checkbox" id="use-paste-text" onchange="togglePasteText()" style="width:18px;height:18px;accent-color:var(--accent)">
                <span style="font-size:.85rem;color:var(--text-muted)">Or paste question paper text directly</span>
              </label>
            </div>
@@ -716,7 +730,7 @@
     <!-- Results Tab -->
     <div id="tab-results" class="main-content" style="padding-top:1.5rem">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem">
-        <div style="font-size:.9rem;color:var(--text-muted)">42 students graded</div>
+        <div style="font-size:.9rem;color:var(--text-muted)" id="results-count-label">Loading students…</div>
         <div class="action-bar">
           <input class="search-input" placeholder="🔍  Search by name or reg no…" oninput="filterTable(this)">
           <select class="select-input" onchange="sortTable(this)">
@@ -728,23 +742,21 @@
         </div>
       </div>
       <div class="table-card">
-        <table id="results-table">
-          <thead>
-            <tr>
-              <th>Reg No</th>
-              <th>Name</th>
-              <th style="text-align:center">Q1 /20</th>
-              <th style="text-align:center">Q2 /20</th>
-              <th style="text-align:center">Q3 /20</th>
-              <th style="text-align:center">Q4 /20</th>
-              <th style="text-align:center">Q5 /20</th>
-              <th style="text-align:center">Total /100</th>
-              <th style="text-align:center">%</th>
-            </tr>
-          </thead>
-          <tbody id="results-body">
-          </tbody>
-        </table>
+        <div class="table-wrapper">
+          <table id="results-table">
+            <thead>
+              <tr id="results-thead-row">
+                <th>Reg No</th>
+                <th>Name</th>
+                <!-- Questions injected dynamically -->
+                <th style="text-align:center">Total</th>
+                <th style="text-align:center">%</th>
+              </tr>
+            </thead>
+            <tbody id="results-body">
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
 
@@ -762,65 +774,8 @@
         <button class="btn btn-ghost btn-sm" onclick="addStudentRow()">+ Add Student</button>
       </div>
 
-      <div class="upload-zone" style="margin-bottom:2rem">
-        <input type="file" accept="image/*,.pdf" multiple>
-        <div class="upload-icon">📤</div>
-        <h3>Drop answer sheets here</h3>
-        <p>Upload multiple sheets at once — OCR will extract student details automatically</p>
-      </div>
-
-      <h3 style="font-family:'Barlow',sans-serif;font-weight:700;margin-bottom:1rem">Student Sheets</h3>
-
       <div id="student-list">
-        <div class="student-row">
-          <div>
-            <div class="form-group">
-              <label>Student Name (OCR extracted)</label>
-              <input type="text" value="Arjun Mehta">
-            </div>
-            <div class="form-group">
-              <label>Register Number</label>
-              <input type="text" value="2024001">
-            </div>
-          </div>
-          <div>
-            <div style="font-size:.8rem;color:var(--text-muted);margin-bottom:.5rem;font-weight:500">OCR Extracted Text Preview</div>
-            <div class="ocr-result">Name: Arjun Mehta | Reg: 2024001
-Q1: Newton's second law defines the relationship between force, mass, and acceleration...
-Q2: Photosynthesis converts light energy to chemical energy using chlorophyll...</div>
-            <div style="margin-top:.75rem;display:flex;gap:.5rem">
-              <span style="font-size:.75rem;padding:.2rem .6rem;background:rgba(34,197,94,.1);color:var(--success);border-radius:5px;font-weight:600">✓ OCR Success</span>
-            </div>
-          </div>
-          <div style="display:flex;flex-direction:column;gap:.5rem;padding-top:1.5rem">
-            <button class="btn btn-primary btn-sm" onclick="showToast('Evaluating Arjun Mehta…')">⚡ Evaluate</button>
-            <button class="btn btn-ghost btn-sm">Preview</button>
-          </div>
-        </div>
-
-        <div class="student-row">
-          <div>
-            <div class="form-group">
-              <label>Student Name <span style="color:var(--warning);font-size:.75rem">(Manual Entry)</span></label>
-              <input type="text" placeholder="Enter student name">
-            </div>
-            <div class="form-group">
-              <label>Register Number</label>
-              <input type="text" placeholder="Enter register number">
-            </div>
-          </div>
-          <div>
-            <div style="font-size:.8rem;color:var(--text-muted);margin-bottom:.5rem;font-weight:500">OCR Extracted Text Preview</div>
-            <div class="ocr-result" style="color:var(--warning)">⚠ OCR could not extract text clearly. Please enter details manually and upload a clearer scan.</div>
-            <div style="margin-top:.75rem">
-              <span style="font-size:.75rem;padding:.2rem .6rem;background:rgba(234,179,8,.1);color:var(--warning);border-radius:5px;font-weight:600">⚠ OCR Failed — Manual Entry Required</span>
-            </div>
-          </div>
-          <div style="display:flex;flex-direction:column;gap:.5rem;padding-top:1.5rem">
-            <button class="btn btn-primary btn-sm" onclick="showToast('Please fill in student details first')">⚡ Evaluate</button>
-            <button class="btn btn-ghost btn-sm">Preview</button>
-          </div>
-        </div>
+        <!-- Student rows will be added here dynamically -->
       </div>
     </div>
 
@@ -831,41 +786,41 @@ Q2: Photosynthesis converts light energy to chemical energy using chlorophyll...
           <h3>Class Statistics</h3>
           <div class="stat-row">
             <span class="label">Class Average</span>
-            <span class="value" style="color:var(--accent)">78.4%</span>
+            <span class="value" style="color:var(--accent)">—</span>
           </div>
           <div class="stat-row">
             <span class="label">Highest Score</span>
-            <span class="value" style="color:var(--success)">97 / 100</span>
+            <span class="value" style="color:var(--success)">—</span>
           </div>
           <div class="stat-row">
             <span class="label">Lowest Score</span>
-            <span class="value" style="color:var(--danger)">31 / 100</span>
+            <span class="value" style="color:var(--danger)">—</span>
           </div>
           <div class="stat-row">
             <span class="label">Pass % (≥40%)</span>
-            <span class="value" style="color:var(--success)">88.1%</span>
+            <span class="value" style="color:var(--success)">—</span>
           </div>
           <div class="stat-row">
             <span class="label">Students Evaluated</span>
-            <span class="value">42 / 42</span>
+            <span class="value">— / —</span>
           </div>
         </div>
 
         <div class="analytics-card">
           <h3>Question-wise Average Score</h3>
           <div class="hbar-chart">
-            <div class="hbar-row"><span class="hbar-label">Q1</span><div class="hbar-track"><div class="hbar-fill" style="width:84%"></div></div><span class="hbar-val">16.8</span></div>
-            <div class="hbar-row"><span class="hbar-label">Q2</span><div class="hbar-track"><div class="hbar-fill" style="width:71%"></div></div><span class="hbar-val">14.2</span></div>
-            <div class="hbar-row"><span class="hbar-label">Q3</span><div class="hbar-track"><div class="hbar-fill" style="width:63%"></div></div><span class="hbar-val">12.6</span></div>
-            <div class="hbar-row"><span class="hbar-label">Q4</span><div class="hbar-track"><div class="hbar-fill" style="width:78%"></div></div><span class="hbar-val">15.6</span></div>
-            <div class="hbar-row"><span class="hbar-label">Q5</span><div class="hbar-track"><div class="hbar-fill" style="width:90%"></div></div><span class="hbar-val">18.0</span></div>
+            <div style="text-align:center;padding:2rem;color:var(--text-muted);font-size:.85rem">
+              Analysis will appear after grading students
+            </div>
           </div>
         </div>
       </div>
 
       <div class="analytics-card" style="margin-bottom:0">
         <h3>Student Total Marks Distribution</h3>
-        <div class="bar-chart" id="bar-chart"></div>
+        <div class="bar-chart" id="bar-chart" style="display:flex;align-items:flex-end;gap:5px;height:250px;padding:20px;background:var(--bg);border-radius:15px;overflow-x:auto">
+          <div style="flex:1;text-align:center;color:var(--text-muted);font-size:.85rem;align-self:center">Analysis will populate after grading students</div>
+        </div>
         <div style="display:flex;justify-content:space-between;margin-top:.5rem">
           <span style="font-size:.75rem;color:var(--text-muted)">↑ Each bar = one student's total score</span>
           <span style="font-size:.75rem;color:var(--text-muted)">Max: 100</span>
@@ -933,47 +888,46 @@ Q2: Photosynthesis converts light energy to chemical energy using chlorophyll...
         <div class="cards-grid" style="margin-bottom:1.5rem">
           <div class="summary-card">
             <div class="card-label">📈 Overall Average</div>
-            <div class="card-value" style="color:var(--accent)">73.2%</div>
-            <div class="card-change down">↓ 2.1% vs prev. period</div>
+            <div class="card-value" style="color:var(--accent)">—</div>
+            <div class="card-change">Across all forums</div>
           </div>
           <div class="summary-card">
             <div class="card-label">🏆 Top Score</div>
-            <div class="card-value" style="color:var(--success)">97</div>
-            <div class="card-change" style="color:var(--text-muted)">Kavya R. — Maths</div>
+            <div class="card-value" style="color:var(--success)">—</div>
+            <div class="card-change" style="color:var(--text-muted)">Highest forum average</div>
           </div>
           <div class="summary-card">
             <div class="card-label">📉 Lowest Score</div>
-            <div class="card-value" style="color:var(--danger)">31</div>
-            <div class="card-change" style="color:var(--text-muted)">Across all forums</div>
+            <div class="card-value" style="color:var(--danger)">—</div>
+            <div class="card-change" style="color:var(--text-muted)">Lowest forum average</div>
           </div>
           <div class="summary-card">
             <div class="card-label">✅ Pass Rate</div>
-            <div class="card-value" style="color:var(--accent2)">85.3%</div>
-            <div class="card-change up">↑ 3.2% vs prev.</div>
+            <div class="card-value" style="color:var(--accent2)">—</div>
+            <div class="card-change">Total evaluation progress</div>
           </div>
         </div>
         <div class="analytics-grid">
           <div class="analytics-card">
             <h3>Performance by Subject</h3>
             <div class="hbar-chart">
-              <div class="hbar-row"><span class="hbar-label" style="width:70px;font-size:.78rem">Maths</span><div class="hbar-track"><div class="hbar-fill" style="width:78%"></div></div><span class="hbar-val">78%</span></div>
-              <div class="hbar-row"><span class="hbar-label" style="width:70px;font-size:.78rem">Physics</span><div class="hbar-track"><div class="hbar-fill" style="width:65%"></div></div><span class="hbar-val">65%</span></div>
-              <div class="hbar-row"><span class="hbar-label" style="width:70px;font-size:.78rem">Chemistry</span><div class="hbar-track"><div class="hbar-fill" style="width:82%"></div></div><span class="hbar-val">82%</span></div>
+              <div style="text-align:center;padding:2rem;color:var(--text-muted);font-size:.85rem">No subject data yet</div>
             </div>
           </div>
           <div class="analytics-card">
-            <h3>Pass / Fail Distribution</h3>
-            <div style="display:flex;gap:1.5rem;align-items:center;justify-content:center;height:120px">
+            <h3>Evaluation Progress</h3>
+            <div id="eval-stats-container" style="display:flex;gap:1.5rem;align-items:center;justify-content:center;height:120px;color:var(--text-muted);font-size:.85rem">
               <div style="text-align:center">
-                <div style="font-family:'Barlow';font-size:3rem;font-weight:800;color:var(--success)">85%</div>
-                <div style="font-size:.85rem;color:var(--text-muted)">Passed</div>
+                <div id="global-pass-pct" style="font-family:'Barlow';font-size:3rem;font-weight:800;color:var(--success)">—</div>
+                <div style="font-size:.85rem;color:var(--text-muted)">Avg Performance</div>
               </div>
               <div style="width:1px;height:60px;background:var(--border)"></div>
               <div style="text-align:center">
-                <div style="font-family:'Barlow';font-size:3rem;font-weight:800;color:var(--danger)">15%</div>
-                <div style="font-size:.85rem;color:var(--text-muted)">Failed</div>
+                <div id="global-graded-pct" style="font-family:'Barlow';font-size:3rem;font-weight:800;color:var(--accent2)">—</div>
+                <div style="font-size:.85rem;color:var(--text-muted)">Sheets Graded</div>
               </div>
             </div>
+          </div>
           </div>
         </div>
       </div>
@@ -1196,13 +1150,60 @@ Q2: Photosynthesis converts light energy to chemical energy using chlorophyll...
 
 </div><!-- end #dashboard -->
 
+<!-- Student Report Modal -->
+<div id="modal-student-report" class="modal-overlay">
+  <div class="modal-card student-report-card">
+    <div class="modal-close" onclick="closeModal('modal-student-report')">&times;</div>
+    <div class="report-header">
+      <div class="avatar" id="report-avatar">S</div>
+      <div style="flex:1">
+        <h2 id="report-name" style="font-family:'Barlow',sans-serif;font-weight:800;margin-bottom:.2rem">Student Name</h2>
+        <p id="report-reg" style="font-size:.85rem;color:var(--text-muted)">Reg No: 123456</p>
+      </div>
+      <div class="report-badge" id="report-pct-badge">95%</div>
+    </div>
+    
+    <div class="report-body">
+      <div class="report-section">
+        <h4 style="font-size:.7rem;text-transform:uppercase;letter-spacing:.1em;color:var(--text-muted);margin-bottom:1rem">Question-wise Scores</h4>
+        <div id="report-scores-grid" class="scores-grid">
+          <!-- Dynamic inputs -->
+        </div>
+        <div style="margin-top:1.5rem;padding:1rem;background:var(--bg);border-radius:12px;border:1px solid var(--border)">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+             <span style="font-size:.8rem;color:var(--text-muted)">Total Score</span>
+             <span id="report-total-val" style="font-family:'Barlow',sans-serif;font-weight:800;font-size:1.2rem;color:var(--accent)">0/100</span>
+          </div>
+        </div>
+      </div>
+      
+      <div class="report-section">
+        <h4 style="font-size:.7rem;text-transform:uppercase;letter-spacing:.1em;color:var(--text-muted);margin-bottom:1rem">AI Feedback & Remarks</h4>
+        <textarea id="report-feedback-input" class="feedback-textarea" placeholder="AI-generated feedback..."></textarea>
+      </div>
+    </div>
+    
+    <div class="report-footer">
+      <button class="btn btn-ghost" style="color:var(--danger);border-color:rgba(239, 68, 68, .2)" onclick="confirmDeleteStudent()">
+        <span style="font-size:1.1rem">🗑</span> Delete Student
+      </button>
+      <div style="display:flex;gap:1rem">
+        <button class="btn btn-ghost" onclick="closeModal('modal-student-report')">Cancel</button>
+        <button class="btn btn-primary" onclick="saveStudentChanges()">
+          <span style="font-size:1.1rem">💾</span> Save Changes
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Toast -->
 <div class="toast" id="toast">
   <span class="toast-icon">✦</span>
   <span id="toast-msg">Action completed</span>
 </div>
-<script src="js/animation.js?v=4"></script>
-<script src="js/app.js?v=4"></script>
-<script type="module" src="js/backend.js?v=4"></script>
+<script src="js/animation.js?v=10"></script>
+<script src="js/app.js?v=10"></script>
+<script type="module" src="js/backend.js?v=10"></script>
 </body>
 </html>
